@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tema mínimo: Compose se encarga de todo el color. Esto solo evita el
+         parpadeo blanco entre que arranca la Activity y monta el primer frame,
+         que sobre fondo oscuro es especialmente molesto. -->
+    <style name="Theme.Relay" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/carbon</item>
+        <item name="android:statusBarColor">@color/carbon</item>
+        <item name="android:navigationBarColor">@color/carbon</item>
+    </style>
+</resources>

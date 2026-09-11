@@ -1,0 +1,8 @@
+# Copia este archivo como local.properties (que NO se sube a git).
+# Android Studio lo genera solo la primera vez, asi que normalmente no hace
+# falta tocarlo. Solo si compilas desde la terminal en otra maquina.
+
+# Windows:  sdk.dir=C\:\\Users\\TU_USUARIO\\AppData\\Local\\Android\\Sdk
+# macOS:    sdk.dir=/Users/TU_USUARIO/Library/Android/sdk
+# Linux:    sdk.dir=/home/TU_USUARIO/Android/Sdk
+sdk.dir=RUTA_A_TU_SDK

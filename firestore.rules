@@ -1,0 +1,75 @@
+rules_version = '2';
+
+// Modelo de permisos
+// -----------------------------------------------------------------------------
+// El directorio (creators, videos) es publico y de SOLO LECTURA para la app.
+// Solo el backend (Admin SDK, que ignora estas reglas) o un usuario con el
+// custom claim {admin: true} pueden escribir.
+// Cada usuario solo puede leer y escribir su propio documento en /users.
+// -----------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function esAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    function esDueno(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Directorio curado de creadores.
+    match /creators/{creatorId} {
+      allow read: if true;
+      allow create, update, delete: if esAdmin();
+    }
+
+    // Publicaciones detectadas por WebSub y enriquecidas con la Data API.
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create, update, delete: if esAdmin();
+    }
+
+    // Perfil privado: favoritos y preferencias de notificacion.
+    match /users/{userId} {
+      allow read, create, update: if esDueno(userId);
+      allow delete: if false; // el borrado pasa por la funcion deleteAccount
+    }
+
+    // Reportes de enlaces rotos. Cualquiera puede crear uno, nadie puede leerlos
+    // salvo el equipo de moderacion.
+    match /reports/{reportId} {
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.keys().hasAll(['uid', 'videoId', 'reason'])
+                    && request.resource.data.reason is string
+                    && request.resource.data.reason.size() <= 500;
+      allow read, update, delete: if esAdmin();
+    }
+
+    // Estado de las suscripciones WebSub. El panel lo lee para mostrar que
+    // canales estan activos; escribirlo es exclusivo del backend.
+    match /websub/{docId} {
+      allow read: if esAdmin();
+      allow write: if false;
+    }
+
+    // Refresh tokens de Apple y otros secretos por usuario.
+    // Cerrado a todo el mundo: solo el Admin SDK entra aqui.
+    match /privateTokens/{docId} {
+      allow read, write: if false;
+    }
+
+    // Marcadores internos del sistema.
+    match /system/{docId} {
+      allow read: if esAdmin();
+      allow write: if false;
+    }
+
+    // Cualquier otra ruta queda cerrada.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

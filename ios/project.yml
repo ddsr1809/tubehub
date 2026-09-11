@@ -1,0 +1,78 @@
+name: Relay
+
+options:
+  bundleIdPrefix: com.tuempresa
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "11.6.0"
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: "8.0.0"
+
+targets:
+  Relay:
+    type: application
+    platform: iOS
+    sources:
+      - path: Relay
+    dependencies:
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseMessaging
+      - package: Firebase
+        product: FirebaseFunctions
+      - package: GoogleSignIn
+        product: GoogleSignIn
+    entitlements:
+      path: Relay/Relay.entitlements
+      properties:
+        com.apple.developer.applesignin:
+          - Default
+        aps-environment: development
+    info:
+      path: Relay/Info.plist
+      properties:
+        CFBundleDisplayName: Relé
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIBackgroundModes:
+          - remote-notification
+
+        # canOpenURL siempre devuelve false para esquemas que no estén aquí,
+        # incluso si la app está instalada. Sin esta lista, el enrutador
+        # nunca abriría las apps nativas y todo caería en Safari.
+        LSApplicationQueriesSchemes:
+          - youtube
+          - vnd.youtube
+          - tiktok
+          - snssdk1128
+          - twitch
+          - instagram
+          - spotify
+
+        # Google Sign-In devuelve el control a la app por este esquema.
+        # El valor es el REVERSED_CLIENT_ID de GoogleService-Info.plist.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - com.googleusercontent.apps.000000000000-xxxxxxxxxxxxxxxxxxxx
+
+        NSUserTrackingUsageDescription: >-
+          No rastreamos tu actividad. Esta app solo te avisa cuando publican
+          los creadores que sigues.
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tuempresa.creatorhub
+        SWIFT_VERSION: "5.10"
+        DEVELOPMENT_TEAM: ABCDE12345
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES

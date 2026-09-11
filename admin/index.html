@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relé · Panel de curaduría</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Puerta de entrada ------------------------------------------------------ -->
+<section id="puerta" class="puerta">
+  <div class="puerta-caja">
+    <p class="marca">Relé</p>
+    <h1>Panel de curaduría</h1>
+    <p class="puerta-texto">
+      Aquí se decide qué creadores entran al directorio y a dónde apunta cada enlace.
+      Solo el equipo de moderación tiene acceso.
+    </p>
+    <button id="btn-entrar" class="btn btn-primario">Entrar con Google</button>
+    <p id="puerta-error" class="aviso aviso-fallo" hidden></p>
+  </div>
+</section>
+
+<!-- Aplicación ------------------------------------------------------------- -->
+<div id="app" hidden>
+
+  <header class="barra">
+    <p class="marca">Relé</p>
+    <nav class="vistas" role="tablist">
+      <button class="vista-btn activo" data-vista="creadores" role="tab">Creadores</button>
+      <button class="vista-btn" data-vista="publicaciones" role="tab">Publicaciones</button>
+      <button class="vista-btn" data-vista="reportes" role="tab">Reportes</button>
+    </nav>
+    <div class="barra-derecha">
+      <p id="resumen" class="resumen"></p>
+      <button id="btn-salir" class="btn btn-plano">Salir</button>
+    </div>
+  </header>
+
+  <!-- Vista: creadores -->
+  <main id="vista-creadores" class="tablero">
+    <aside class="rail">
+      <div class="rail-cabeza">
+        <h2>Directorio</h2>
+        <button id="btn-nuevo" class="btn btn-primario btn-chico">Agregar creador</button>
+      </div>
+      <div id="lista-creadores" class="lista"></div>
+    </aside>
+
+    <section class="panel">
+      <div id="sin-seleccion" class="vacio">
+        <h2>Ningún creador seleccionado</h2>
+        <p>Elige a alguien de la lista para editar sus enlaces, o agrega uno nuevo.</p>
+      </div>
+
+      <form id="editor" class="editor" hidden>
+        <div class="editor-cabeza">
+          <h2 id="editor-titulo">Creador nuevo</h2>
+          <span id="estado-senal" class="senal"></span>
+        </div>
+
+        <div class="campo">
+          <label for="f-nombre">Nombre visible</label>
+          <input id="f-nombre" type="text" required maxlength="60" placeholder="Juan Pérez">
+          <p class="ayuda">Así lo verán los usuarios en la app y en las notificaciones.</p>
+        </div>
+
+        <div class="fila">
+          <div class="campo">
+            <label for="f-categoria">Categoría</label>
+            <select id="f-categoria">
+              <option value="cine">Cine</option>
+              <option value="comida">Comida</option>
+              <option value="politica">Política</option>
+              <option value="musica">Música</option>
+              <option value="salud">Salud</option>
+              <option value="noticias">Noticias</option>
+              <option value="tecnologia">Tecnología</option>
+              <option value="otros">Otros</option>
+            </select>
+          </div>
+          <div class="campo campo-interruptor">
+            <label for="f-activo">Estado</label>
+            <label class="interruptor">
+              <input id="f-activo" type="checkbox" checked>
+              <span>Visible en la app y recibiendo avisos</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="campo">
+          <label for="f-bio">Descripción corta</label>
+          <textarea id="f-bio" rows="2" maxlength="300" placeholder="Recetas caseras, un video cada martes."></textarea>
+        </div>
+
+        <div class="campo">
+          <label for="f-foto">URL de la foto</label>
+          <input id="f-foto" type="url" placeholder="https://...">
+        </div>
+
+        <h3 class="sub">Conexiones</h3>
+        <p class="ayuda ayuda-suelta">
+          Cada enlace abre la app oficial de esa plataforma. YouTube es el único que
+          además dispara notificaciones automáticas.
+        </p>
+
+        <div class="conexion conexion-destacada">
+          <label for="f-yt">YouTube</label>
+          <div class="fila-busqueda">
+            <input id="f-yt" type="text" placeholder="UC... o @handle o URL del canal">
+            <button type="button" id="btn-buscar" class="btn btn-secundario">Buscar canal</button>
+          </div>
+          <p id="yt-resultado" class="ayuda"></p>
+        </div>
+
+        <div class="conexion"><label for="f-tiktok">TikTok</label>
+          <input id="f-tiktok" type="url" placeholder="https://www.tiktok.com/@usuario"></div>
+        <div class="conexion"><label for="f-twitch">Twitch</label>
+          <input id="f-twitch" type="url" placeholder="https://www.twitch.tv/usuario"></div>
+        <div class="conexion"><label for="f-instagram">Instagram</label>
+          <input id="f-instagram" type="url" placeholder="https://www.instagram.com/usuario"></div>
+        <div class="conexion"><label for="f-spotify">Spotify</label>
+          <input id="f-spotify" type="url" placeholder="https://open.spotify.com/show/..."></div>
+        <div class="conexion"><label for="f-patreon">Patreon</label>
+          <input id="f-patreon" type="url" placeholder="https://www.patreon.com/usuario"></div>
+        <div class="conexion"><label for="f-web">Sitio propio</label>
+          <input id="f-web" type="url" placeholder="https://..."></div>
+
+        <div class="acciones">
+          <button type="submit" id="btn-guardar" class="btn btn-primario">Guardar creador</button>
+          <button type="button" id="btn-borrar" class="btn btn-peligro" hidden>Quitar del directorio</button>
+        </div>
+        <p id="editor-aviso" class="aviso" hidden></p>
+      </form>
+    </section>
+  </main>
+
+  <!-- Vista: publicaciones -->
+  <main id="vista-publicaciones" class="tablero-simple" hidden>
+    <h2>Publicaciones detectadas</h2>
+    <p class="ayuda ayuda-suelta">
+      Lo que WebSub recibió y la app ya notificó. Si un video desaparece de YouTube,
+      cambia su destino aquí y la audiencia recibe el enlace nuevo.
+    </p>
+    <div id="lista-videos" class="tabla"></div>
+  </main>
+
+  <!-- Vista: reportes -->
+  <main id="vista-reportes" class="tablero-simple" hidden>
+    <h2>Enlaces reportados</h2>
+    <p class="ayuda ayuda-suelta">Avisos enviados por los usuarios desde la app.</p>
+    <div id="lista-reportes" class="tabla"></div>
+  </main>
+</div>
+
+<!-- Diálogo de redirección -->
+<dialog id="dlg-mover" class="dialogo">
+  <form method="dialog" id="form-mover">
+    <h2>Cambiar el destino</h2>
+    <p id="mover-video" class="ayuda"></p>
+    <div class="campo">
+      <label for="m-url">Enlace nuevo</label>
+      <input id="m-url" type="url" required placeholder="https://vimeo.com/...">
+    </div>
+    <div class="campo">
+      <label for="m-plataforma">Plataforma</label>
+      <select id="m-plataforma">
+        <option value="web">Sitio web</option>
+        <option value="youtube">YouTube</option>
+        <option value="tiktok">TikTok</option>
+        <option value="twitch">Twitch</option>
+        <option value="instagram">Instagram</option>
+      </select>
+    </div>
+    <label class="interruptor">
+      <input id="m-avisar" type="checkbox" checked>
+      <span>Avisar a la audiencia con una notificación</span>
+    </label>
+    <div class="acciones">
+      <button value="cancelar" class="btn btn-plano">Cancelar</button>
+      <button value="mover" class="btn btn-primario">Cambiar destino</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="brindis" class="brindis" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

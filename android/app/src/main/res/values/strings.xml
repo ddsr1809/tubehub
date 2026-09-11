@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nombre_app">Relé</string>
+
+    <!-- Nombres de los canales de notificación. Aparecen en los ajustes del
+         sistema, así que se escriben para que un usuario los entienda sin
+         saber nada de la app. -->
+    <string name="canal_publicaciones">Cuando alguien publica</string>
+    <string name="canal_publicaciones_desc">Avisos de videos nuevos de los creadores que sigues.</string>
+    <string name="canal_avisos">Avisos importantes</string>
+    <string name="canal_avisos_desc">Cuando un video cambia de lugar o deja de estar disponible.</string>
+</resources>
