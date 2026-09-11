@@ -12,7 +12,7 @@ android {
     defaultConfig {
         applicationId = "com.tuempresa.creatorhub"
         minSdk = 24
-        targetSdk = 37
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
 
@@ -57,9 +57,6 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
-//    compileSdkMinor = 25
-    buildToolsVersion = "34.0.0"
-//    compileSdkMinor = 0
 }
 
 dependencies {
@@ -88,12 +85,4 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.play.services)
-}
-
-kotlin {
-    jvmToolchain(17)
-}
-
-tasks.register("prepareKotlinBuildScriptModel") {
-    // Dummy task to satisfy Android Studio
 }
