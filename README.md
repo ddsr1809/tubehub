@@ -114,8 +114,14 @@ Al guardar, el backend manda el handshake al hub de Google. El testigo de la fil
 
 ### 8. Compilar la app de Android
 
+Lee primero **`android/COMO-ABRIR.md`**: el repositorio no incluye el
+`gradle-wrapper.jar` (es binario), así que hay que generarlo una vez con
+`gradle wrapper` dentro de `android/`. Sin ese paso, Android Studio usa el
+Gradle que tenga instalado y choca con el AGP.
+
 ```bash
 cd android
+gradle wrapper        # solo la primera vez
 ```
 
 Descarga `google-services.json` de la consola de Firebase (Configuración → Tus apps → Android) y ponlo en `android/app/`.
@@ -124,7 +130,11 @@ Después edita `android/app/build.gradle.kts`:
 - `applicationId` con tu identificador.
 - `WEB_CLIENT_ID` con el `client_id` de tipo 3 que viene dentro de `google-services.json`. Es el error más común: si pones ahí el ID de Android, el login con Google falla sin decir por qué.
 
-Abre la carpeta en Android Studio y dale a Run. Necesitas JDK 17; con JDK 21 la compilación falla con un error que no menciona la versión de Java.
+Abre **la carpeta `android/`** en Android Studio (no la raíz del proyecto) y dale a Run. En `Settings → Build Tools → Gradle`, comprueba que *Distribution* diga `Wrapper` y que *Gradle JDK* sea un 17.
+
+Para ver las pantallas sin instalar nada en el teléfono, abre `ui/Previews.kt` y pulsa **Split** en la esquina superior derecha del editor. Cada pantalla se renderiza en claro y en oscuro, y varias también con la letra del sistema al 200%: ahí es donde se detecta si un botón se corta antes de que lo sufra un usuario.
+
+Las versiones están fijadas a Gradle 8.11.1 + AGP 8.7.3 + Kotlin 2.1.0, una combinación conservadora y conocida. Para subirlas, usa el *AGP Upgrade Assistant* de Android Studio, que cambia el plugin y la versión de Gradle a la vez: son dos cosas que hay que mover juntas o el proyecto deja de sincronizar.
 
 Para el AAB de Play Store:
 
@@ -225,6 +235,8 @@ Si alguna vez agregas búsqueda, hazlo con `playlistItems.list` sobre la playlis
 **Llegan avisos duplicados.** No deberían: la transacción de idempotencia en `websub-webhook.js` solo deja pasar el primero. Si pasa, revisa que no tengas dos suscripciones al mismo canal.
 
 **Se envían avisos de videos viejos.** Al suscribirte, el hub reenvía entradas recientes del feed. `MAX_VIDEO_AGE_MS` (6 horas) las descarta. Súbelo o bájalo en `functions/src/config.js`.
+
+**`Task 'prepareKotlinBuildScriptModel' not found in project ':app'`.** Gradle y el Android Gradle Plugin no son compatibles entre sí. Casi siempre significa que el IDE no está usando el wrapper del proyecto. Está explicado en `android/COMO-ABRIR.md`.
 
 ---
 
