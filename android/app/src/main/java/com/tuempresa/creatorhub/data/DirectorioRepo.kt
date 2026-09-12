@@ -4,7 +4,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -22,8 +21,7 @@ import android.util.Log
 class DirectorioRepo(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val mensajeria: FirebaseMessaging = FirebaseMessaging.getInstance(),
-    private val funciones: FirebaseFunctions = FirebaseFunctions.getInstance()
+    private val mensajeria: FirebaseMessaging = FirebaseMessaging.getInstance()
 ) {
 
     /** El directorio completo. Son pocos documentos y cambian poco. */
@@ -146,9 +144,7 @@ class DirectorioRepo(
 
     /** Reporta un enlace roto. Alimenta la redirección de emergencia. */
     suspend fun reportarEnlaceRoto(videoId: String?, creatorId: String?, motivo: String = "enlace_roto") {
-        funciones.getHttpsCallable("reportarEnlace")
-            .call(mapOf("videoId" to videoId, "creatorId" to creatorId, "reason" to motivo))
-            .await()
+        ApiRelay.reportarEnlace(videoId, creatorId, motivo)
     }
 
     companion object {

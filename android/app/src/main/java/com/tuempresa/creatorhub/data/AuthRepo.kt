@@ -33,8 +33,7 @@ import com.tuempresa.creatorhub.BuildConfig
  */
 class AuthRepo(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
-    private val funciones: FirebaseFunctions = FirebaseFunctions.getInstance()
+    private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
 
     /** Resultado de intentar guardar la cuenta, en términos que la UI entiende. */
@@ -225,7 +224,11 @@ class AuthRepo(
      * El backend revoca el vínculo federado y elimina todo rastro.
      */
     suspend fun borrarCuenta(contexto: Context) {
-        funciones.getHttpsCallable("borrarCuenta").call(emptyMap<String, Any>()).await()
+        // Si el servidor falla, la excepción sube hasta el ViewModel y el
+        // usuario ve el motivo. Cerrar sesión antes de confirmar el borrado
+        // dejaría la cuenta viva pero inaccesible, que es lo peor de ambos
+        // mundos.
+        ApiRelay.borrarCuenta()
         runCatching { auth.signOut() }
         cerrarSesion(contexto)
     }

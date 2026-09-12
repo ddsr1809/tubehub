@@ -24,6 +24,9 @@ android {
             "WEB_CLIENT_ID",
             "\"000000000000-xxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com\""
         )
+
+        // URL del servidor Relé. Sin barra final: las rutas ya la llevan.
+        buildConfigField("String", "API_BASE", "\"https://TU-SERVIDOR\"")
     }
 
     buildTypes {
@@ -37,6 +40,10 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
+            // Dentro del emulador, localhost es el propio emulador. El host
+            // se alcanza por 10.0.2.2. Con un teléfono físico por USB, usa
+            // la IP de tu computadora en la red local.
+            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:8080\"")
         }
     }
 
@@ -78,12 +85,12 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
-    implementation(libs.firebase.functions)
 
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.googleid)
 
+    implementation(libs.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.play.services)
 }

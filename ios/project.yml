@@ -27,8 +27,6 @@ targets:
         product: FirebaseFirestore
       - package: Firebase
         product: FirebaseMessaging
-      - package: Firebase
-        product: FirebaseFunctions
       - package: GoogleSignIn
         product: GoogleSignIn
     entitlements:
@@ -64,6 +62,13 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - com.googleusercontent.apps.000000000000-xxxxxxxxxxxxxxxxxxxx
+
+        # App Transport Security bloquea HTTP sin cifrar desde iOS 9.
+        # NSAllowsLocalNetworking abre la excepción solo para localhost y la
+        # red local, que es lo que hace falta para hablar con el servidor en
+        # desarrollo. El tráfico hacia internet sigue exigiendo HTTPS.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
 
         NSUserTrackingUsageDescription: >-
           No rastreamos tu actividad. Esta app solo te avisa cuando publican

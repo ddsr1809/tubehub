@@ -50,7 +50,7 @@ class RelayApp : Application() {
 
     companion object {
         // Estos identificadores tienen que coincidir letra por letra con los
-        // que envía el backend en functions/src/push.js. Si no coinciden,
+        // que envía el backend en PushService.java. Si no coinciden,
         // el aviso llega pero cae en un canal genérico llamado "Otros".
         const val CANAL_PUBLICACIONES = "publicaciones"
         const val CANAL_AVISOS = "avisos"
