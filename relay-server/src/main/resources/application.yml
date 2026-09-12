@@ -1,0 +1,84 @@
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: relay-server
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  jackson:
+    default-property-inclusion: non_null
+  threads:
+    # Hilos virtuales (Java 21). Este servidor pasa casi todo su tiempo
+    # esperando respuestas de red: el hub de Google, la Data API de YouTube,
+    # Firestore. Con hilos de plataforma, cada espera bloquea un hilo del
+    # sistema; con virtuales, no. Quítalo si compilas con Java 17.
+    virtual:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.tuempresa.relay: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+# -----------------------------------------------------------------------------
+# Configuración propia
+# -----------------------------------------------------------------------------
+# Todo se inyecta por variables de entorno. Nada de secretos escritos aquí:
+# este archivo sí se versiona.
+relay:
+  # URL pública de ESTE servidor. El hub de Google la usa para verificar la
+  # suscripción y para entregar los avisos. Sin ella no llega nada.
+  # Ejemplo: https://relay-server-xxxx.a.run.app
+  url-publica: ${RELAY_URL_PUBLICA:}
+
+  websub:
+    hub: https://pubsubhubbub.appspot.com/subscribe
+    # Clave simétrica con la que el hub firma cada carga útil.
+    #   openssl rand -hex 32
+    secreto: ${WEBSUB_SECRETO:}
+    # Token opaco en la URL del webhook. Filtra escaneos automatizados antes
+    # de gastar una sola lectura de Firestore.
+    token-callback: ${WEBSUB_TOKEN_CALLBACK:}
+    # Pedimos el máximo; el hub lo recorta a unos 10 días de todos modos.
+    lease-segundos: 864000
+    # Descartamos publicaciones más viejas que esto: al suscribirnos a un canal
+    # por primera vez, el hub reenvía entradas recientes del feed y no queremos
+    # avisar de videos de la semana pasada como si acabaran de salir.
+    antiguedad-maxima-horas: 6
+
+  youtube:
+    api-key: ${YOUTUBE_API_KEY:}
+
+  apple:
+    team-id: ${APPLE_TEAM_ID:}
+    key-id: ${APPLE_KEY_ID:}
+    bundle-id: ${APPLE_BUNDLE_ID:}
+    # Contenido del archivo .p8, con los saltos de línea como \n literales.
+    clave-privada: ${APPLE_CLAVE_PRIVADA:}
+
+  renovacion:
+    # Con el servidor siempre encendido, esto basta.
+    # Si despliegas en Cloud Run con escalado a cero, ponlo en false: una
+    # instancia apagada nunca ejecuta una tarea programada. Usa entonces
+    # Cloud Scheduler apuntando a POST /internal/renovar.
+    programada: ${RENOVACION_PROGRAMADA:true}
+    cron: "0 0 4 */4 * *"
+    zona: America/Hermosillo
+    # Cabecera compartida que protege /internal/**. Otra cadena aleatoria.
+    token-interno: ${TOKEN_INTERNO:}
+
+  cors:
+    # Origen del panel de curaduría, separado por comas si hay varios.
+    origenes: ${CORS_ORIGENES:http://localhost:5000}

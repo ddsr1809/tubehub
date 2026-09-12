@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Solo en depuración: permite hablar con el servidor local por HTTP sin
+         cifrar. Desde Android 9, el tráfico en claro está bloqueado por
+         defecto, y el síntoma es un "CLEARTEXT communication not permitted"
+         que no dice nada sobre la causa.
+
+         Este archivo NO se fusiona en la compilación de release, así que la
+         app publicada sigue exigiendo HTTPS. -->
+    <application
+        android:usesCleartextTraffic="true"
+        tools:replace="android:usesCleartextTraffic" />
+</manifest>

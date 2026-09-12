@@ -1,0 +1,13 @@
+build/
+.gradle/
+.idea/
+*.iml
+bin/
+
+# Secretos: NUNCA subir estos archivos
+.env
+service-account.json
+*.p8
+
+.DS_Store
+*.log

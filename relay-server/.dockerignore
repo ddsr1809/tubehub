@@ -1,0 +1,7 @@
+build/
+.gradle/
+*.log
+src/test/
+service-account.json
+*.p8
+.env
