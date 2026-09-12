@@ -8,18 +8,41 @@ import {
 import {
   getFirestore, collection, query, orderBy, limit, onSnapshot, where
 } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
-import {
-  getFunctions, httpsCallable
-} from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-functions.js';
-
-import { firebaseConfig, REGION } from './firebase-config.js';
+import { firebaseConfig, API_BASE } from './firebase-config.js';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const fns = getFunctions(app, REGION);
 
-const llamar = (nombre) => httpsCallable(fns, nombre);
+// Cliente del servidor Spring Boot.
+//
+// Cada peticion lleva el ID token de Firebase, que el servidor verifica contra
+// Google y traduce a ROLE_ADMIN si el claim `admin` esta presente. El token
+// caduca cada hora, asi que lo pedimos en cada llamada: el SDK lo refresca solo
+// y lo devuelve desde cache, asi que no cuesta nada.
+async function api(ruta, { metodo = 'GET', cuerpo = null } = {}) {
+  const usuario = auth.currentUser;
+  if (!usuario) throw new Error('Sesion no valida. Vuelve a entrar.');
+
+  const respuesta = await fetch(API_BASE + ruta, {
+    method: metodo,
+    headers: {
+      Authorization: `Bearer ${await usuario.getIdToken()}`,
+      ...(cuerpo ? { 'Content-Type': 'application/json' } : {})
+    },
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined
+  });
+
+  const texto = await respuesta.text();
+  const datos = texto ? JSON.parse(texto) : {};
+
+  if (!respuesta.ok) {
+    // Spring manda el motivo en `message`. Mostrarlo tal cual es mas util que
+    // un "error 400" pelado.
+    throw new Error(datos.message || datos.error || `Error ${respuesta.status}`);
+  }
+  return datos;
+}
 
 const $ = (sel) => document.querySelector(sel);
 let creadores = [];
@@ -191,7 +214,7 @@ $('#btn-buscar').addEventListener('click', async () => {
   salida.textContent = 'Buscando…';
 
   try {
-    const { data } = await llamar('buscarCanal')({ query: entrada });
+    const data = await api(`/api/admin/canal?query=${encodeURIComponent(entrada)}`);
     $('#f-yt').value = data.channelId;
     if (!$('#f-nombre').value) $('#f-nombre').value = data.title;
     if (!$('#f-foto').value && data.photoUrl) $('#f-foto').value = data.photoUrl;
@@ -232,7 +255,7 @@ $('#editor').addEventListener('submit', async (ev) => {
   };
 
   try {
-    const { data } = await llamar('guardarCreador')(datos);
+    const data = await api('/api/admin/creadores', { metodo: 'POST', cuerpo: datos });
     brindis(seleccionado ? 'Creador actualizado' : 'Creador agregado');
     if (data.avisoSuscripcion) {
       mostrarError($('#editor-aviso'), `Se guardó, pero la suscripción falló: ${data.avisoSuscripcion}`);
@@ -250,7 +273,7 @@ $('#btn-borrar').addEventListener('click', async () => {
   if (!seleccionado) return;
   if (!confirm(`¿Quitar a ${seleccionado.name} del directorio? Se cancela su suscripción de avisos.`)) return;
   try {
-    await llamar('borrarCreador')({ id: seleccionado.id });
+    await api(`/api/admin/creadores/${seleccionado.id}`, { metodo: 'DELETE' });
     brindis('Creador retirado del directorio');
     seleccionado = null;
     $('#editor').hidden = true;
@@ -311,11 +334,13 @@ $('#form-mover').addEventListener('submit', async (ev) => {
   if (!url || !videoAMover) return;
 
   try {
-    await llamar('moverContenido')({
-      videoId: videoAMover.id,
-      url,
-      platform: $('#m-plataforma').value,
-      avisar: $('#m-avisar').checked
+    await api(`/api/admin/videos/${videoAMover.id}/mover`, {
+      metodo: 'POST',
+      cuerpo: {
+        url,
+        platform: $('#m-plataforma').value,
+        avisar: $('#m-avisar').checked
+      }
     });
     brindis('Destino cambiado');
   } catch (err) {

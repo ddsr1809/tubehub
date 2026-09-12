@@ -10,7 +10,7 @@ El nombre "Relé" es un marcador de posición: cámbialo por el que prefieras, p
 
 | Carpeta | Qué es | Dónde corre |
 |---|---|---|
-| `functions/` | El cerebro. Recibe los avisos de YouTube, los enriquece y manda las notificaciones. | Cloud Functions (serverless) |
+| `server/` | El cerebro. Recibe los avisos de YouTube, los enriquece y manda las notificaciones. Spring Boot + Kotlin. | Cloud Run, VPS o Docker |
 | `admin/` | El panel donde tú das de alta a los creadores. | Firebase Hosting (web) |
 | `android/` | La app de Android, en Kotlin y Jetpack Compose. | Play Store |
 | `ios/` | La app de iPhone, en Swift y SwiftUI. | App Store |
@@ -22,12 +22,12 @@ El nombre "Relé" es un marcador de posición: cámbialo por el que prefieras, p
 ## Cómo funciona, en una frase por paso
 
 1. Un creador publica en YouTube.
-2. Google avisa a `functions/websub` en menos de un segundo (protocolo WebSub, **0 unidades de cuota**).
-3. La función verifica la firma criptográfica, comprueba que no sea un aviso repetido y pide los datos completos del video (**1 unidad de cuota**).
+2. Google avisa a `POST /websub` del servidor en menos de un segundo (protocolo WebSub, **0 unidades de cuota**).
+3. El servidor verifica la firma criptográfica, comprueba que no sea un aviso repetido y pide los datos completos del video (**1 unidad de cuota**).
 4. Manda una notificación push a todos los que siguen a ese creador.
 5. El usuario toca el aviso y la app abre el video en YouTube con un enlace profundo.
 
-El costo mensual con unos cientos de usuarios cae dentro del nivel gratuito de Firebase.
+Firestore, Auth y FCM siguen en el nivel gratuito de Firebase con unos cientos de usuarios. El servidor sí tiene un coste fijo: unos 10-15 USD al mes en Cloud Run con una instancia mínima, o 5-6 en un VPS pequeño. Lo caro —ancho de banda, transcodificación y almacenamiento de video— lo siguen pagando YouTube, TikTok y compañía.
 
 ---
 
@@ -49,41 +49,55 @@ El costo mensual con unos cientos de usuarios cae dentro del nivel gratuito de F
 ### 3. Instalar las herramientas
 
 ```bash
-npm install -g firebase-tools
+npm install -g firebase-tools     # solo para reglas y hosting del panel
 firebase login
 cd creator-hub
-firebase use --add          # elige tu proyecto
-cd functions && npm install && cd ..
+firebase use --add                # elige tu proyecto
+firebase deploy --only firestore  # sube reglas e índices
 ```
 
-### 4. Cargar los secretos
+El servidor se compila con Gradle y Java 21. Su guía completa está en
+**`server/COMO-EJECUTAR.md`**.
+
+### 4. Configurar y arrancar el servidor
 
 ```bash
-# Genera dos cadenas aleatorias distintas:
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-
-cd functions
-firebase functions:secrets:set YOUTUBE_API_KEY          # la del paso 2
-firebase functions:secrets:set WEBSUB_SECRET            # una cadena aleatoria
-firebase functions:secrets:set WEBSUB_CALLBACK_TOKEN    # la otra cadena
-cp .env.example .env
+cd server
+gradle wrapper          # solo la primera vez
+cp .env.example .env    # y rellena los valores
 ```
 
-### 5. Desplegar y conectar el webhook
-
-Hay un pequeño baile de dos pasos aquí: la función necesita saber su propia URL, y esa URL solo existe después del primer despliegue.
+Genera las tres cadenas aleatorias que pide el archivo:
 
 ```bash
-firebase deploy --only functions:websub
-# La terminal imprime algo como:
-#   Function URL (websub): https://websub-a1b2c3d4-uc.a.run.app
+openssl rand -hex 32
 ```
 
-Copia esa URL, pégala en `functions/.env` como `PUBLIC_BASE_URL`, y despliega todo:
+Descarga la clave de servicio de Firebase (Configuración del proyecto →
+Cuentas de servicio → Generar clave privada) y apunta
+`GOOGLE_APPLICATION_CREDENTIALS` a ella.
 
 ```bash
-firebase deploy --only functions,firestore
+export $(grep -v '^#' .env | xargs)
+./gradlew test          # 11 pruebas, deben pasar todas
+./gradlew bootRun
 ```
+
+### 5. Publicar el servidor y conectar el webhook
+
+Hay un baile de dos pasos: el servidor necesita saber su propia URL pública, y
+esa URL solo existe después del primer despliegue.
+
+```bash
+gcloud run deploy relay-server --source . --region us-central1 \
+  --allow-unauthenticated --min-instances 1
+```
+
+Copia la URL que imprime, ponla en `RELAY_URL_PUBLICA` y vuelve a desplegar.
+
+**`--min-instances 1` importa.** Con escalado a cero, las tareas programadas
+nunca se ejecutan y los arrendamientos de WebSub caducan a los diez días en
+silencio. Está explicado en `server/COMO-EJECUTAR.md`.
 
 ### 6. Abrir el panel y darte permiso de administrador
 
@@ -91,7 +105,10 @@ firebase deploy --only functions,firestore
 firebase deploy --only hosting
 ```
 
-Antes de entrar, edita `admin/firebase-config.js` con los datos de tu app web (Consola de Firebase → Configuración del proyecto → Tus apps → Web).
+Antes de entrar, edita `admin/firebase-config.js`: los datos de tu app web
+(Consola de Firebase → Configuración del proyecto → Tus apps → Web) y la
+`API_BASE` con la URL de tu servidor. Añade además ese origen del panel a
+`CORS_ORIGENES` en el servidor, o el navegador bloqueará las peticiones.
 
 Ahora date el rol de administrador:
 
@@ -103,6 +120,9 @@ Ahora date el rol de administrador:
 cd scripts && npm install firebase-admin
 node set-admin.js tu-correo@gmail.com
 ```
+
+(Una vez que ya haya un administrador, los siguientes se nombran desde el
+propio servidor con `POST /api/admin/administradores?correo=`.)
 
 4. Cierra sesión, vuelve a entrar. Ya tienes acceso.
 
@@ -162,17 +182,22 @@ Si prefieres no usar XcodeGen, crea un proyecto de app SwiftUI en Xcode, arrastr
 ## Probar sin desplegar nada
 
 ```bash
-cd functions && npm install
-node test/webhook.test.js
+cd server && ./gradlew test
 ```
 
-Comprueba las dos cosas que, si se rompen, rompen el producto entero: que la validación de la firma HMAC rechace cuerpos manipulados y firmas de otro secreto, y que el parseo del Atom de YouTube saque bien el `videoId` pese a los prefijos de namespace. Deben pasar las 10.
+Once pruebas que cubren lo único que, si se rompe, rompe el producto entero:
+que la validación HMAC rechace cuerpos manipulados y firmas de otro secreto, y
+que el parseo del Atom saque bien el `videoId` pese a los prefijos de
+namespace. No levantan el contexto de Spring ni tocan Firebase.
 
-Para el resto, los emuladores levantan todo en local:
+Para Firestore y Auth en local:
 
 ```bash
 firebase emulators:start
 ```
+
+El emulador de Firestore está en el puerto **8085**, no en el 8080: ese lo
+ocupa Spring Boot.
 
 ---
 
@@ -184,11 +209,10 @@ Estos cuatro puntos son los que más rechazos causan. El código ya los cubre; l
 
 **Borrado de cuenta (Guideline 5.1.1 v).** Ya está en Ajustes y borra de verdad. Para que además revoque el vínculo con Apple, carga estas credenciales:
 
-```bash
-firebase functions:secrets:set APPLE_PRIVATE_KEY   # pega el contenido del archivo .p8
-# y en functions/.env:
-#   APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_BUNDLE_ID
-```
+En `server/.env` (o como variables de entorno del servicio):
+`APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_BUNDLE_ID` y `APPLE_CLAVE_PRIVADA`
+con el contenido del archivo `.p8` en una sola línea, con `\n` literales en
+los saltos.
 
 **Identidad de marca.** Nada de "Tube" en el nombre, nada de logos parecidos, nada de degradados rojos. El logo de YouTube solo puede aparecer dentro de un botón que diga "Ver en YouTube".
 
@@ -228,13 +252,13 @@ Si alguna vez agregas búsqueda, hazlo con `playlistItems.list` sobre la playlis
 
 ## Cosas que se rompen y cómo notarlo
 
-**Las notificaciones dejan de llegar a los 10 días.** El arrendamiento de WebSub caducó. La función `renovarWebsub` corre cada 4 días para evitarlo; revisa `firebase functions:log --only renovarWebsub`.
+**Las notificaciones dejan de llegar a los 10 días.** El arrendamiento de WebSub caducó. La renovación corre cada 4 días; en los registros del servidor debe aparecer "Ciclo de renovación terminado". Si no aparece, casi siempre es que el servicio escala a cero y nunca llega a ejecutar la tarea programada.
 
-**El testigo se queda en ámbar.** El hub no pudo verificar tu webhook. Casi siempre es `PUBLIC_BASE_URL` mal puesta, o que la función no responde el `hub.challenge` como texto plano.
+**El testigo se queda en ámbar.** El hub no pudo verificar tu webhook. Casi siempre es `RELAY_URL_PUBLICA` mal puesta, o que el servidor no responde el `hub.challenge` como texto plano.
 
-**Llegan avisos duplicados.** No deberían: la transacción de idempotencia en `websub-webhook.js` solo deja pasar el primero. Si pasa, revisa que no tengas dos suscripciones al mismo canal.
+**Llegan avisos duplicados.** No deberían: la transacción de idempotencia en `WebSubService.procesarEntrada` solo deja pasar el primero. Si pasa, revisa que no tengas dos suscripciones al mismo canal.
 
-**Se envían avisos de videos viejos.** Al suscribirte, el hub reenvía entradas recientes del feed. `MAX_VIDEO_AGE_MS` (6 horas) las descarta. Súbelo o bájalo en `functions/src/config.js`.
+**Se envían avisos de videos viejos.** Al suscribirte, el hub reenvía entradas recientes del feed. `relay.websub.antiguedad-maxima-horas` (6) las descarta. Cámbialo en `server/src/main/resources/application.yml`.
 
 **`Task 'prepareKotlinBuildScriptModel' not found in project ':app'`.** Gradle y el Android Gradle Plugin no son compatibles entre sí. Casi siempre significa que el IDE no está usando el wrapper del proyecto. Está explicado en `android/COMO-ABRIR.md`.
 
@@ -247,9 +271,18 @@ El proyecto está completo de punta a punta, pero estas piezas quedaron fuera a 
 - **Detección automática en TikTok, Twitch e Instagram.** Ahora mismo esas plataformas solo tienen enlace en el perfil, no notificación. TikTok no da webhooks públicos; Twitch sí tiene EventSub y sería el siguiente en agregar.
 - **Subida de fotos de creador.** El panel pide una URL. Conectar Firebase Storage tomaría poco.
 - **Notificaciones programadas** ("tu creador transmite en una hora").
-- **Pruebas automatizadas** del webhook más allá de las que ya hay: falta cubrir el enriquecimiento y el envío.
+- **Pruebas automatizadas** más allá de las que ya hay: falta cubrir el enriquecimiento, el envío de push y los controladores con MockMvc.
 - **Sign in with Apple en Android.** Se puede, vía flujo web, pero añade complejidad y en Android casi nadie lo usa.
 - **Tests de interfaz** en ambas apps.
+
+---
+
+## Migración de las apps
+
+Las apps de Android y iOS del paquete anterior llamaban a Cloud Functions.
+Con este servidor pasan a hablar REST. Son cinco puntos de llamada en total y
+están detallados uno a uno en **`MIGRACION-APPS.md`**, con el código exacto
+que hay que poner.
 
 ---
 

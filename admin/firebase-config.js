@@ -2,7 +2,8 @@
 // Consola de Firebase > Configuración del proyecto > Tus apps > App web.
 //
 // Estas claves son públicas por diseño: no son un secreto. Lo que protege los
-// datos son las Firestore Security Rules y el custom claim de administrador.
+// datos son las Firestore Security Rules y la validación del token en el
+// servidor Spring Boot.
 
 export const firebaseConfig = {
   apiKey: 'AIza...',
@@ -13,4 +14,7 @@ export const firebaseConfig = {
   appId: '1:000000000000:web:abcdef123456'
 };
 
-export const REGION = 'us-central1';
+// URL del servidor Spring Boot. En desarrollo, http://localhost:8080
+// Acuérdate de añadir el origen de este panel a CORS_ORIGENES en el servidor,
+// o el navegador bloqueará las peticiones antes de que salgan.
+export const API_BASE = 'http://localhost:8080';

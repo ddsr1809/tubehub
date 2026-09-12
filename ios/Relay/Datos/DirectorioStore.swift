@@ -1,7 +1,6 @@
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
-import FirebaseFunctions
 import FirebaseMessaging
 
 /// Toda la lectura del directorio pasa por aquí.
@@ -18,7 +17,6 @@ final class DirectorioStore: ObservableObject {
     @Published var mensaje: String?
 
     private let db = Firestore.firestore()
-    private let funciones = Functions.functions()
 
     private var registroCreadores: ListenerRegistration?
     private var registroPerfil: ListenerRegistration?
@@ -167,11 +165,11 @@ final class DirectorioStore: ObservableObject {
     /// Reporta un enlace roto. Alimenta la redirección de emergencia.
     func reportarEnlaceRoto(videoId: String?, creatorId: String?) async {
         do {
-            _ = try await funciones.httpsCallable("reportarEnlace").call([
-                "videoId": videoId as Any,
-                "creatorId": creatorId as Any,
-                "reason": "enlace_roto"
-            ])
+            try await ApiRelay.reportarEnlace(
+                videoId: videoId,
+                creatorId: creatorId,
+                motivo: "enlace_roto"
+            )
             mensaje = "Gracias. Vamos a revisar ese enlace."
         } catch {
             mensaje = "No se pudo enviar el reporte. Inténtalo más tarde."

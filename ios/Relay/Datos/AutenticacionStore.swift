@@ -4,7 +4,6 @@ import CryptoKit
 import FirebaseAuth
 import FirebaseCore
 import FirebaseFirestore
-import FirebaseFunctions
 import GoogleSignIn
 
 /// Identidad.
@@ -32,7 +31,6 @@ final class AutenticacionStore: NSObject, ObservableObject {
     }
 
     private let db = Firestore.firestore()
-    private let funciones = Functions.functions()
 
     /// Nonce en crudo del intento actual de Sign in with Apple.
     /// Apple recibe su hash SHA-256 y Firebase el valor sin cifrar; así se
@@ -104,10 +102,11 @@ final class AutenticacionStore: NSObject, ObservableObject {
             // por incumplir la Guideline 5.1.1(v).
             if let codigoData = credencialApple.authorizationCode,
                let codigo = String(data: codigoData, encoding: .utf8) {
-                Task {
-                    _ = try? await funciones.httpsCallable("guardarTokenApple")
-                        .call(["authorizationCode": codigo])
-                }
+                // En segundo plano a propósito: si esto falla, el usuario ya
+                // entró y no debe notarlo. El coste es que no podríamos
+                // revocar el vínculo al borrar la cuenta, y el servidor lo
+                // deja registrado para reintentarlo.
+                Task { try? await ApiRelay.guardarTokenApple(codigo: codigo) }
             }
 
             let credencial = OAuthProvider.appleCredential(
@@ -267,7 +266,7 @@ final class AutenticacionStore: NSObject, ObservableObject {
         ocupado = true
         defer { ocupado = false }
         do {
-            _ = try await funciones.httpsCallable("borrarCuenta").call([:])
+            try await ApiRelay.borrarCuenta()
             try? Auth.auth().signOut()
             await iniciarSesionInvisible()
             mensaje = "Cuenta borrada. Puedes seguir usando la app como invitado."
