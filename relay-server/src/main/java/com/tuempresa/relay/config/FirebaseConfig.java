@@ -16,11 +16,13 @@ import org.springframework.web.client.RestClient;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 
 /**
- * El Admin SDK ignora las Firestore Security Rules por diseño: entra con
- * privilegios totales. Eso significa que toda la validación de permisos ocurre
+ * El Admin SDK ignora las Firestore Security Rules por diseño: entra conµ
+ * privilegios totales. Eso significa que toda la validación de permisos ocurreµ
  * en este servidor, no en la base de datos. Las reglas siguen protegiendo el
  * acceso directo desde las apps móviles, que es donde importan.
  */
@@ -35,27 +37,74 @@ public class FirebaseConfig {
             return FirebaseApp.getApps().get(0);
         }
 
-        // Dentro de Google Cloud (Cloud Run, GKE, Compute Engine) las
-        // credenciales se toman del entorno y no hace falta ningún archivo.
-        // Fuera, apunta GOOGLE_APPLICATION_CREDENTIALS al service-account.json.
-        String ruta = System.getenv("GOOGLE_APPLICATION_CREDENTIALS");
-        GoogleCredentials credenciales;
-
-        if (ruta != null && !ruta.isBlank()) {
-            log.info("Credenciales de Firebase leídas de {}", ruta);
-            try (FileInputStream flujo = new FileInputStream(ruta)) {
-                credenciales = GoogleCredentials.fromStream(flujo);
-            }
-        } else {
-            log.info("Credenciales de Firebase tomadas del entorno de Google Cloud");
-            credenciales = GoogleCredentials.getApplicationDefault();
-        }
-
         FirebaseOptions opciones = FirebaseOptions.builder()
-                .setCredentials(credenciales)
+                .setCredentials(credenciales())
                 .build();
 
         return FirebaseApp.initializeApp(opciones);
+    }
+
+    /**
+     * Dos caminos: un archivo de clave de servicio, o las credenciales del
+     * propio entorno de Google Cloud.
+     *
+     * Fuera de Google Cloud siempre hace falta el archivo. El error original
+     * del SDK cuando no lo encuentra ("Your default credentials were not
+     * found") no dice qué variable falta ni dónde ponerla, así que lo
+     * traducimos a algo accionable.
+     */
+    private GoogleCredentials credenciales() throws IOException {
+        String ruta = System.getenv("GOOGLE_APPLICATION_CREDENTIALS");
+
+        if (ruta != null && !ruta.isBlank()) {
+            if (!Files.exists(Path.of(ruta))) {
+                throw new IllegalStateException("""
+                        GOOGLE_APPLICATION_CREDENTIALS apunta a un archivo que no existe:
+                          %s
+                        Descarga la clave desde la consola de Firebase:
+                          Configuracion del proyecto > Cuentas de servicio > Generar clave privada
+                        """.formatted(ruta));
+            }
+
+            try (FileInputStream flujo = new FileInputStream(ruta)) {
+                GoogleCredentials credenciales = GoogleCredentials.fromStream(flujo);
+                log.info("Credenciales de Firebase leidas de {}", ruta);
+                return credenciales;
+            }
+        }
+
+        // Sin variable: solo funciona dentro de Google Cloud, donde las
+        // credenciales vienen del propio servicio.
+        try {
+            GoogleCredentials credenciales = GoogleCredentials.getApplicationDefault();
+            log.info("Credenciales de Firebase tomadas del entorno de Google Cloud");
+            return credenciales;
+
+        } catch (IOException e) {
+            throw new IllegalStateException("""
+
+                    -------------------------------------------------------------
+                    No hay credenciales de Firebase.
+
+                    Si ejecutas desde IntelliJ, el archivo .env NO se lee solo.
+                    Hay que declarar las variables en la configuracion de
+                    ejecucion:
+
+                      Run > Edit Configurations... > RelayApplication
+                      > campo "Environment variables"
+
+                    Como minimo:
+                      GOOGLE_APPLICATION_CREDENTIALS=/ruta/a/service-account.json
+
+                    El archivo se descarga de la consola de Firebase:
+                      Configuracion del proyecto > Cuentas de servicio
+                      > Generar clave privada
+
+                    Desde la terminal, en su lugar:
+                      export $(grep -v '^#' .env | xargs) && ./gradlew bootRun
+                    -------------------------------------------------------------
+                    """, e);
+        }
     }
 
     @Bean
@@ -75,9 +124,9 @@ public class FirebaseConfig {
 
     /**
      * Cliente HTTP compartido para el hub de WebSub, la Data API de YouTube y
-     * el endpoint de revocación de Apple.
+     * el endpoint de revocacion de Apple.
      *
-     * Los tiempos de espera son cortos a propósito: una llamada colgada
+     * Los tiempos de espera son cortos a proposito: una llamada colgada
      * retiene un hilo, y el hub reintenta si tardamos demasiado en responder.
      */
     @Bean
@@ -89,3 +138,4 @@ public class FirebaseConfig {
         return RestClient.builder().requestFactory(fabrica).build();
     }
 }
+

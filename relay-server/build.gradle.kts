@@ -25,6 +25,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-xml")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
 
     // Admin SDK: Firestore, Auth y FCM desde el servidor. Ignora las Firestore
     // Security Rules por diseño, así que toda validación de permisos ocurre

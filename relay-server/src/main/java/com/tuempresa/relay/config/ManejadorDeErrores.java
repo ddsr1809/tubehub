@@ -9,6 +9,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.Map;
@@ -18,11 +20,11 @@ import java.util.stream.Collectors;
  * Respuestas de error consistentes.
  *
  * Las apps y el panel leen el campo {@code message} y lo muestran tal cual al
- * usuario. Por eso los mensajes están escritos en lenguaje llano y no como
- * trazas técnicas: alguien de 70 años va a leer esto en la pantalla de su
- * teléfono.
+ * usuario. Por eso los mensajes estan escritos en lenguaje llano y no como
+ * trazas tecnicas: alguien de 70 anios va a leer esto en la pantalla de su
+ * telefono.
  *
- * Del lado del servidor sí registramos el detalle completo.
+ * Del lado del servidor si registramos el detalle completo.
  */
 @RestControllerAdvice
 public class ManejadorDeErrores {
@@ -48,7 +50,23 @@ public class ManejadorDeErrores {
         return ResponseEntity.status(estado).body(cuerpo(estado, mensaje, peticion));
     }
 
-    /** Errores de validación de @Valid, agrupados en una sola frase legible. */
+    /**
+     * Ruta inexistente.
+     *
+     * Sin este manejador, el catch-all de abajo convertia un 404 legitimo en
+     * un 500 y ademas escupia una traza completa en el registro. Un 404 no es
+     * un fallo del servidor: es una peticion a algo que no esta.
+     */
+    @ExceptionHandler({ NoResourceFoundException.class, NoHandlerFoundException.class })
+    public ResponseEntity<Map<String, Object>> deRutaInexistente(
+            Exception e, HttpServletRequest peticion
+    ) {
+        log.debug("Ruta no encontrada: {}", peticion.getRequestURI());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(cuerpo(HttpStatus.NOT_FOUND, "Esa ruta no existe.", peticion));
+    }
+
+    /** Errores de validacion de @Valid, agrupados en una sola frase legible. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> deValidacion(
             MethodArgumentNotValidException e, HttpServletRequest peticion
@@ -56,7 +74,7 @@ public class ManejadorDeErrores {
         String mensaje = e.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getDefaultMessage() != null
                         ? error.getDefaultMessage()
-                        : error.getField() + " no es válido")
+                        : error.getField() + " no es valido")
                 .distinct()
                 .collect(Collectors.joining(" "));
 
@@ -68,7 +86,7 @@ public class ManejadorDeErrores {
     public ResponseEntity<Map<String, Object>> deEstadoIlegal(
             IllegalStateException e, HttpServletRequest peticion
     ) {
-        log.error("Estado inválido en {}", peticion.getRequestURI(), e);
+        log.error("Estado invalido en {}", peticion.getRequestURI(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(cuerpo(HttpStatus.INTERNAL_SERVER_ERROR,
                         e.getMessage() != null ? e.getMessage() : "Error interno.", peticion));
@@ -78,12 +96,12 @@ public class ManejadorDeErrores {
     public ResponseEntity<Map<String, Object>> deCualquierCosa(
             Exception e, HttpServletRequest peticion
     ) {
-        // Nunca devolvemos el mensaje crudo de una excepción inesperada: puede
+        // Nunca devolvemos el mensaje crudo de una excepcion inesperada: puede
         // filtrar rutas internas, nombres de colecciones o fragmentos de
         // consulta. El detalle va al registro, no a la pantalla.
         log.error("Error no controlado en {}", peticion.getRequestURI(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(cuerpo(HttpStatus.INTERNAL_SERVER_ERROR,
-                        "Algo falló de nuestro lado. Inténtalo de nuevo en un momento.", peticion));
+                        "Algo fallo de nuestro lado. Intentalo de nuevo en un momento.", peticion));
     }
 }

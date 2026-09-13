@@ -15,9 +15,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.functions.FirebaseFunctions
-import kotlinx.coroutines.tasks.await
 import com.tuempresa.creatorhub.BuildConfig
+import kotlinx.coroutines.tasks.await
 
 /**
  * Identidad.
