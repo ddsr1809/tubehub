@@ -21,7 +21,6 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,6 +30,10 @@ import java.util.Map;
  * borrado completo desde dentro de la app. Y si la cuenta se creó con Sign in
  * with Apple, hay que revocar además el token federado. Sin eso, el revisor
  * rechaza la app, y es un rechazo del que no se sale con explicaciones.
+ *
+ * Solo hace falta si vas a publicar en la App Store. Si de momento solo
+ * trabajas en Android, puedes dejar estas variables vacías y el servidor
+ * arranca igual.
  */
 @Service
 public class AppleService {
@@ -47,13 +50,13 @@ public class AppleService {
 
     /**
      * Client secret que exige Apple: un JWT firmado con ES256 usando la clave
-     * .p8 del portal de desarrollador. Vida de cinco minutos a propósito: solo
-     * se usa para una petición.
+     * .p8 del portal de desarrollador. Vive cinco minutos a propósito, porque
+     * solo se usa para una petición.
      */
     private String clientSecret() {
-        if (!config.apple().estaConfigurado()) {
+        if (!config.apple().puedeRevocar()) {
             throw new IllegalStateException(
-                    "Faltan credenciales de Apple (team-id, key-id, bundle-id, clave-privada).");
+                    "Faltan credenciales de Apple (bundle-id, team-id, key-id, clave-privada).");
         }
 
         Instant ahora = Instant.now();
@@ -104,6 +107,11 @@ public class AppleService {
 
     /** Canjea el código de autorización por un refresh token de larga vida. */
     public String canjearCodigo(String codigo) {
+        if (!config.apple().puedeRevocar()) {
+            log.warn("Apple sin configurar; no se guardó el refresh token");
+            return null;
+        }
+
         MultiValueMap<String, String> formulario = new LinkedMultiValueMap<>();
         formulario.add("client_id", config.apple().bundleId());
         formulario.add("client_secret", clientSecret());
@@ -141,10 +149,5 @@ public class AppleService {
                 .body(formulario)
                 .retrieve()
                 .toBodilessEntity();
-    }
-
-    /** Plataformas que ofrecen inicio de sesión federado en esta app. */
-    public static List<String> proveedores() {
-        return List.of("apple", "google");
     }
 }

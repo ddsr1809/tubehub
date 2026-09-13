@@ -50,7 +50,7 @@ public class YouTubeClient {
             String miniatura,
             String publicado,
             String duracion,
-            boolean esEnVivo,
+            boolean enVivo,
             String tipo
     ) {}
 

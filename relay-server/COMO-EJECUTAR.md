@@ -1,77 +1,180 @@
-# Servidor Relé — Java + Spring Boot
+# Servidor Relé — Java, Spring Boot y PostgreSQL
 
-Backend del Directorio de Creadores. Recibe los avisos de YouTube por WebSub, los enriquece con la Data API y despacha las notificaciones push.
+Backend de seguimiento de creadores. Recibe los avisos de YouTube por WebSub, los enriquece con la Data API y despacha las notificaciones push.
 
-**Java 21** (LTS) y **Spring Boot 3.4**. Firestore, Auth y FCM siguen siendo de Firebase; este servidor los usa a través del Admin SDK.
+**Todo vive en tu VPS.** Java 21, Spring Boot 3.4, PostgreSQL. Sin Firestore, sin Firebase Auth, sin dependencias de pago.
+
+---
+
+## Qué cuesta dinero
+
+Tu VPS. Nada más.
+
+| Pieza | Dónde vive | Costo |
+|---|---|---|
+| Base de datos | Tu VPS (PostgreSQL) | 0 |
+| Sesiones y cuentas | Tu VPS (JWT propio) | 0 |
+| Detección de videos | WebSub | 0 |
+| Metadatos de video | YouTube Data API | 0 (10.000 unidades/día) |
+| Notificaciones push | FCM | 0, ilimitado |
+
+**FCM es lo único que sigue siendo de Google, y no hay alternativa:** Android e iOS solo aceptan notificaciones a través de sus propios canales. Necesitas un proyecto de Firebase en el plan Spark, que no pide tarjeta y no puede generar una factura.
+
+Lo caro de verdad —ancho de banda de video, transcodificación, almacenamiento— lo siguen pagando YouTube, TikTok y compañía, porque esta app nunca reproduce contenido.
+
+---
+
+## Qué cambió respecto a la versión con Firestore
+
+**Las apps ya no leen la base de datos directamente.** Antes hablaban con Firestore y recibían actualizaciones en vivo; ahora preguntan a este servidor por REST. En la práctica se nota poco: la novedad llega por push, y la app refresca al abrirse. El feed no es una pantalla que la gente mire fijamente esperando que cambie.
+
+**La autenticación es nuestra.** Verificamos los tokens de Google y Apple contra sus claves públicas —exactamente lo que hacía Firebase Auth por debajo— y emitimos nuestro propio JWT. Las cuentas anónimas se crean con el identificador del dispositivo.
+
+**Las apps necesitan una capa de datos nueva.** Es un trabajo real, no un ajuste de cinco líneas. Las rutas están documentadas abajo.
 
 ---
 
 ## La API
 
-Todas las rutas bajo `/api` esperan el ID token de Firebase:
+Todas las rutas bajo `/api` esperan el token de sesión:
 
 ```
-Authorization: Bearer <idToken>
+Authorization: Bearer <token>
 ```
 
-El servidor lo verifica contra Google y traduce el claim `admin` a `ROLE_ADMIN`. Es el mismo claim que usan las Firestore Security Rules, así que no hay dos fuentes de verdad sobre quién modera.
+### Sesión
 
-| Método | Ruta | Quién |
+| Método | Ruta | Para qué |
 |---|---|---|
-| `GET` `POST` | `/websub` | El hub de Google (firma HMAC, sin token) |
-| `POST` | `/api/reportes` | Cualquier usuario con sesión |
-| `DELETE` | `/api/cuenta` | El propio usuario |
-| `POST` | `/api/apple/token` | El propio usuario |
-| `POST` | `/api/admin/creadores` | Moderación |
-| `DELETE` | `/api/admin/creadores/{id}` | Moderación |
-| `GET` | `/api/admin/canal?query=` | Moderación |
-| `POST` | `/api/admin/videos/{id}/mover` | Moderación |
-| `POST` | `/api/admin/administradores?correo=` | Moderación |
-| `POST` | `/internal/renovar` | Cloud Scheduler (cabecera `X-Token-Interno`) |
-| `GET` | `/actuator/health` | Público |
+| `POST` | `/api/auth/anonimo` | Sesión invisible al abrir la app. Body: `{deviceId}` |
+| `POST` | `/api/auth/google` | Body: `{token, deviceId}` con el idToken de Google |
+| `POST` | `/api/auth/apple` | Body: `{token, deviceId, authorizationCode}` |
+| `POST` | `/api/auth/renovar` | Token nuevo antes de que caduque |
 
-`/websub` es público por necesidad: Google tiene que poder alcanzarlo sin credenciales. La autenticidad se comprueba con la firma HMAC del cuerpo.
+### Apps
+
+| Método | Ruta | Para qué |
+|---|---|---|
+| `GET` | `/api/creadores?categoria=` | El directorio curado |
+| `GET` | `/api/creadores/{id}` | Un perfil |
+| `GET` | `/api/publicaciones?limite=` | Novedades de quienes sigue |
+| `GET` | `/api/perfil` | Favoritos y preferencias |
+| `PUT` | `/api/favoritos/{creadorId}` | Seguir |
+| `DELETE` | `/api/favoritos/{creadorId}` | Dejar de seguir |
+| `PUT` | `/api/preferencias` | Tamaño de letra, tema, avisos |
+| `POST` | `/api/reportes` | Enlace roto |
+| `DELETE` | `/api/cuenta` | Borrado definitivo |
+
+### Moderación
+
+| Método | Ruta |
+|---|---|
+| `GET` `POST` | `/api/admin/creadores` |
+| `DELETE` | `/api/admin/creadores/{id}` |
+| `GET` | `/api/admin/canal?query=` |
+| `GET` | `/api/admin/publicaciones` |
+| `POST` | `/api/admin/videos/{videoId}/mover` |
+| `GET` | `/api/admin/reportes` |
+| `POST` | `/api/admin/administradores?correo=` |
+
+### Sin token
+
+`POST /websub` (firma HMAC), `GET /websub` (verificación del hub), `POST /internal/renovar` (cabecera `X-Token-Interno`), `GET /actuator/health`.
+
+**Una nota sobre los topics de FCM.** Seguir a alguien guarda el favorito aquí, pero la suscripción al topic la hace la app en el teléfono. Los topics son por aparato, no por cuenta, y el servidor no puede suscribir a nadie en su nombre. Si la app no llama a `subscribeToTopic`, el usuario verá el creador marcado y no recibirá nada.
+
+---
+
+## Desplegar en tu VPS
+
+Lo más corto es Docker Compose: levanta PostgreSQL y el servidor juntos.
+
+```bash
+git clone tu-repo && cd relay-server
+cp .env.example .env
+nano .env          # rellena los valores
+docker compose up -d
+docker compose logs -f servidor
+```
+
+Genera cada secreto por separado:
+
+```bash
+openssl rand -hex 32
+```
+
+Hacen falta cuatro distintos: `DB_CLAVE`, `JWT_SECRETO`, `WEBSUB_SECRETO`, `WEBSUB_TOKEN_CALLBACK` y `TOKEN_INTERNO`.
+
+### El proxy con HTTPS
+
+El servidor escucha en `127.0.0.1:8080`, no en la IP pública. Necesitas algo delante que resuelva TLS, porque el hub de Google no acepta callbacks en HTTP plano. Con Caddy son dos líneas y el certificado se renueva solo:
+
+```caddyfile
+relay.tudominio.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+### La base de datos no se expone
+
+En `docker-compose.yml`, el servicio `db` no tiene `ports`. Solo la alcanza el servidor por la red interna de Docker. Si necesitas entrar con `psql` desde tu portátil, hazlo por un túnel SSH:
+
+```bash
+ssh -L 5432:localhost:5432 usuario@tu-vps
+```
+
+Abrir el 5432 a internet es de las formas más rápidas de que te vacíen la base.
 
 ---
 
 ## Arrancar en local
 
+Sin Docker, con un PostgreSQL que ya tengas:
+
 ```bash
-cd relay-server
-gradle wrapper          # solo la primera vez: genera gradlew y el .jar
-cp .env.example .env    # y rellena los valores
+createdb relay
+cp .env.example .env      # y rellena
 export $(grep -v '^#' .env | xargs)
 ./gradlew bootRun
 ```
 
-Comprueba que vive:
+Flyway crea las tablas al arrancar. No hace falta ejecutar ningún SQL a mano.
+
+Comprueba:
 
 ```bash
 curl http://localhost:8080/actuator/health
 ```
 
-### Sobre el JDK
+### Probar el webhook
 
-El proyecto usa toolchains de Gradle con el plugin de Foojay, así que **si no tienes el JDK 21 instalado, Gradle lo descarga solo**. No hace falta que toques nada aunque ya tengas el 17 para Android Studio.
-
-Si prefieres compilar con Java 17, cambia el `21` por `17` en `build.gradle.kts` y quita `spring.threads.virtual.enabled` de `application.yml`: los hilos virtuales solo existen a partir del 21.
-
-### Credenciales de Firebase
-
-Fuera de Google Cloud hace falta una clave de servicio: consola de Firebase → Configuración del proyecto → Cuentas de servicio → Generar clave privada. Guárdala fuera del repositorio y apunta `GOOGLE_APPLICATION_CREDENTIALS` a ella.
-
-Dentro de Google Cloud no hace falta nada: las credenciales se toman del entorno.
-
-### Probar el webhook sin desplegar
-
-El hub de Google necesita una URL pública y con HTTPS. Para desarrollo:
+El hub necesita una URL pública con HTTPS:
 
 ```bash
 ngrok http 8080
-# y pon la URL que te dé en RELAY_URL_PUBLICA
+# pon la URL en RELAY_URL_PUBLICA y reinicia
 ```
 
-Si además levantas los emuladores de Firebase, ojo: el de Firestore usa el puerto 8080 por defecto, el mismo que Spring Boot. Cambia uno de los dos.
+La URL de ngrok cambia en cada reinicio con el plan gratuito. Cuando pase, actualiza la variable y vuelve a suscribir todo:
+
+```bash
+curl -X POST https://TU-SERVIDOR/internal/renovar -H "X-Token-Interno: EL_VALOR"
+```
+
+---
+
+## El primer administrador
+
+No hay forma de nombrarlo desde la API, porque haría falta ser administrador para hacerlo. Se hace una vez con SQL:
+
+```bash
+docker compose exec db psql -U relay -d relay \
+  -c "update usuarios set es_admin = true where email = 'tu-correo@gmail.com';"
+```
+
+Antes tienes que haber entrado una vez con esa cuenta de Google para que el usuario exista. Después, cierra sesión y vuelve a entrar: el permiso solo aparece en un token nuevo.
+
+Los siguientes administradores ya se nombran desde `POST /api/admin/administradores?correo=`.
 
 ---
 
@@ -81,94 +184,38 @@ Si además levantas los emuladores de Firebase, ojo: el de Firestore usa el puer
 ./gradlew test
 ```
 
-Once pruebas que cubren lo único que, si se rompe, rompe el producto entero: que la validación HMAC rechace cuerpos manipulados, firmas de otro secreto y algoritmos no permitidos, y que el parseo del Atom saque bien el `videoId` pese a los prefijos de namespace.
-
-No levantan el contexto de Spring ni tocan Firebase, así que corren en milisegundos. Si alguna falla, no despliegues.
+Once pruebas sobre el camino crítico: que la validación HMAC rechace cuerpos manipulados, firmas de otro secreto y algoritmos no permitidos, y que el parseo del Atom saque bien el `videoId` pese a los prefijos de namespace. No levantan Spring ni tocan la base de datos.
 
 ---
 
-## Desplegar
+## Copias de seguridad
 
-### Cloud Run
-
-```bash
-gcloud run deploy relay-server \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --min-instances 1 \
-  --set-env-vars "RELAY_URL_PUBLICA=...,CORS_ORIGENES=..." \
-  --set-secrets "WEBSUB_SECRETO=websub-secreto:latest,YOUTUBE_API_KEY=youtube-key:latest"
-```
-
-**`--min-instances 1` no es opcional.** Con escalado a cero pasan dos cosas malas:
-
-1. Una instancia apagada nunca ejecuta una tarea `@Scheduled`. Los arrendamientos de WebSub caducan a los diez días y las notificaciones dejan de llegar sin ningún error en los registros. Este es el fallo más difícil de diagnosticar de todo el sistema, porque nada se rompe visiblemente: simplemente deja de pasar.
-2. El arranque en frío de Spring Boot tarda varios segundos. El hub de Google tiene tiempos de espera cortos en la verificación de intención y puede descartar la suscripción antes de que el servidor llegue a responder.
-
-Si aun así quieres escalar a cero, pon `RENOVACION_PROGRAMADA=false` y crea el trabajo programado:
+Nadie lo hace hasta que lo necesita. Un cron diario basta:
 
 ```bash
-gcloud scheduler jobs create http renovar-websub \
-  --schedule "0 4 */4 * *" \
-  --time-zone "America/Hermosillo" \
-  --uri "https://TU-SERVIDOR/internal/renovar" \
-  --http-method POST \
-  --headers "X-Token-Interno=EL_VALOR_DE_TOKEN_INTERNO"
+docker compose exec -T db pg_dump -U relay relay | gzip > relay-$(date +%F).sql.gz
 ```
 
-Seguirás expuesto al problema del arranque en frío durante las verificaciones.
-
-### Cualquier VPS con Docker
-
-```bash
-docker build -t relay-server .
-docker run -d -p 8080:8080 --env-file .env --restart unless-stopped relay-server
-```
-
-Aquí no hay problema de escalado a cero: el contenedor está siempre encendido y la tarea programada funciona tal cual. Ponle un proxy delante (Caddy o nginx) que resuelva HTTPS, porque el hub de Google no acepta callbacks en HTTP plano.
+Lo que de verdad duele perder no son las publicaciones —esas vuelven a llegar— sino las cuentas y los favoritos de la gente.
 
 ---
 
-## Sobre el costo
+## Cambiar el esquema más adelante
 
-Con funciones sin servidor el backend costaba prácticamente cero porque no había nada encendido entre eventos. Con una instancia siempre activa cuentas con un coste fijo: unos 10-15 USD al mes en Cloud Run, 5-6 en un VPS pequeño.
-
-Lo que no cambia es la parte cara: el ancho de banda, la transcodificación y el almacenamiento de video los siguen pagando YouTube, TikTok y compañía. Ese sigue siendo el fundamento de toda la arquitectura.
-
----
-
-## Cuota de la YouTube Data API
-
-Tienes 10.000 unidades al día. El diseño gasta una por video publicado.
-
-| Método | Coste | Uso aquí |
-|---|---|---|
-| WebSub | 0 | Detección de publicaciones |
-| `videos.list` | 1 | Título, descripción y miniatura |
-| `channels.list` | 1 | Solo al dar de alta un creador |
-| `search.list` | **100** | **Prohibido.** Agotaría el día en 100 llamadas |
-
-`YouTubeClient` no tiene ningún método que llame a `search.list`, y es deliberado. Si algún día añades búsqueda, hazlo con `playlistItems.list` sobre la playlist de subidas del canal, que cuesta 1.
+Flyway lleva la cuenta de las migraciones aplicadas. **Nunca edites `V1__esquema_inicial.sql`**: crea un `V2__lo_que_sea.sql` al lado. Editar una migración ya aplicada rompe el arranque con un error de checksum que desconcierta bastante la primera vez.
 
 ---
 
 ## Cosas que se rompen y cómo notarlo
 
-**Las notificaciones dejan de llegar a los diez días.** El arrendamiento caducó. En los registros debe aparecer "Ciclo de renovación terminado" cada cuatro días. Si no aparece, el servicio está escalando a cero.
+**Las notificaciones dejan de llegar a los diez días.** El arrendamiento de WebSub caducó. En los registros debe aparecer "Ciclo de renovación terminado" cada cuatro días.
 
-**El testigo del panel se queda en ámbar.** El hub no pudo verificar el webhook. Casi siempre es `RELAY_URL_PUBLICA` mal puesta, o que el servidor no responde el `hub.challenge` como texto plano.
+**El testigo del panel se queda en ámbar.** El hub no pudo verificar el webhook. Casi siempre es `RELAY_URL_PUBLICA` mal puesta, o que el proxy no está pasando bien la petición.
 
-**El hub nunca llama.** Comprueba que la URL sea HTTPS y accesible desde fuera:
+**`JWT_SECRETO debe tener al menos 32 caracteres`.** HMAC-SHA256 lo exige. El servidor lo comprueba al arrancar en vez de fallar en el primer inicio de sesión.
 
-```bash
-curl "https://TU-SERVIDOR/websub?token=TU_TOKEN&hub.mode=subscribe&hub.topic=x&hub.challenge=hola"
-```
+**`Schema-validation: missing table`.** Hibernate valida al arrancar que las entidades cuadran con las tablas. Si sale esto, Flyway no llegó a aplicar las migraciones: revisa la conexión a la base.
 
-Debe devolver `No solicitado` (404). Si devuelve `No encontrado`, el token no coincide.
+**Firmas inválidas en los registros.** El `WEBSUB_SECRETO` actual no coincide con el que se usó al suscribirse. Cambiarlo invalida todas las suscripciones: hay que rehacerlas con `/internal/renovar`.
 
-**`Falta RELAY_URL_PUBLICA`.** Literal: falta esa variable. Es la que más se olvida porque solo se conoce después del primer despliegue.
-
-**Firmas inválidas en los registros.** El `WEBSUB_SECRETO` actual no coincide con el que se usó al suscribirse. Cambiar ese valor invalida todas las suscripciones existentes: hay que volver a suscribir todos los canales con `POST /internal/renovar`.
-
-**`No matching toolchains found`.** El plugin de Foojay en `settings.gradle.kts` debería descargar el JDK solo. Si falla, suele ser que la máquina no tiene salida a internet hacia `api.foojay.io`; instala el JDK 21 a mano.
+**Todos los usuarios pierden la sesión a la vez.** Cambiaste `JWT_SECRETO`. Los tokens viejos dejan de validar y las apps vuelven a entrar como anónimas. Las cuentas siguen ahí; solo hay que iniciar sesión otra vez.

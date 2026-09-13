@@ -1,64 +1,92 @@
 package com.tuempresa.relay.modelo;
 
-import com.google.cloud.firestore.annotation.Exclude;
-import com.google.cloud.firestore.annotation.IgnoreExtraProperties;
+import jakarta.persistence.*;
 
-import java.util.HashMap;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * La entidad central del directorio.
  *
- * Fíjate en que no es "un canal de YouTube" sino "un creador": una persona que
- * publica en varios sitios. Esa decisión de modelado es lo que permite que la
- * app agrupe YouTube, TikTok y Twitch bajo un solo perfil, y lo que hace que
- * el directorio sobreviva si a alguien le cierran una cuenta.
+ * Es "un creador", no "un canal de YouTube": una persona que publica en varios
+ * sitios. Esa decision de modelado permite agrupar YouTube, TikTok y Twitch
+ * bajo un solo perfil, y hace que el directorio sobreviva si a alguien le
+ * cierran una cuenta.
  */
-@IgnoreExtraProperties
+@Entity
+@Table(name = "creadores")
 public class Creador {
 
-    private String id = "";
-    private String name = "";
-    private String category = "otros";
+    @Id
+    @GeneratedValue
+    private UUID id;
+
+    @Column(nullable = false)
+    private String nombre = "";
+
+    @Column(nullable = false)
+    private String categoria = "otros";
+
+    @Column(columnDefinition = "text")
     private String bio;
-    private String photoUrl;
-    private Map<String, Conexion> platforms = new HashMap<>();
-    private boolean active = true;
 
-    public Creador() {}
+    @Column(name = "foto_url")
+    private String fotoUrl;
 
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
+    @Column(nullable = false)
+    private boolean activo = true;
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    /**
+     * Las conexiones se cargan siempre con el creador porque la interfaz las
+     * necesita en cuanto muestra un perfil. Con LAZY tendriamos una consulta
+     * extra por cada fila del directorio.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "conexiones", joinColumns = @JoinColumn(name = "creador_id"))
+    @MapKeyColumn(name = "plataforma")
+    private Map<String, Conexion> conexiones = new LinkedHashMap<>();
 
-    public String getCategory() { return category; }
-    public void setCategory(String category) { this.category = category; }
+    @Column(name = "creado_en", nullable = false)
+    private Instant creadoEn = Instant.now();
+
+    @Column(name = "actualizado_en", nullable = false)
+    private Instant actualizadoEn = Instant.now();
+
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
+
+    public String getNombre() { return nombre; }
+    public void setNombre(String nombre) { this.nombre = nombre; }
+
+    public String getCategoria() { return categoria; }
+    public void setCategoria(String categoria) { this.categoria = categoria; }
 
     public String getBio() { return bio; }
     public void setBio(String bio) { this.bio = bio; }
 
-    public String getPhotoUrl() { return photoUrl; }
-    public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
+    public String getFotoUrl() { return fotoUrl; }
+    public void setFotoUrl(String fotoUrl) { this.fotoUrl = fotoUrl; }
 
-    public Map<String, Conexion> getPlatforms() { return platforms; }
-    public void setPlatforms(Map<String, Conexion> platforms) {
-        this.platforms = platforms != null ? platforms : new HashMap<>();
+    public boolean isActivo() { return activo; }
+    public void setActivo(boolean activo) { this.activo = activo; }
+
+    public Map<String, Conexion> getConexiones() { return conexiones; }
+    public void setConexiones(Map<String, Conexion> conexiones) {
+        this.conexiones = conexiones != null ? conexiones : new LinkedHashMap<>();
     }
 
-    public boolean isActive() { return active; }
-    public void setActive(boolean active) { this.active = active; }
+    public Instant getCreadoEn() { return creadoEn; }
+    public void setCreadoEn(Instant creadoEn) { this.creadoEn = creadoEn; }
 
-    /**
-     * ID canónico del canal de YouTube, o null si el creador no tiene.
-     *
-     * @Exclude porque es derivado: si Firestore lo guardara, tendríamos el
-     * mismo dato en dos sitios y tarde o temprano se desincronizarían.
-     */
-    @Exclude
+    public Instant getActualizadoEn() { return actualizadoEn; }
+    public void setActualizadoEn(Instant actualizadoEn) { this.actualizadoEn = actualizadoEn; }
+
+    /** ID canonico del canal de YouTube, o null si el creador no tiene. */
+    @Transient
     public String getCanalDeYouTube() {
-        Conexion youtube = platforms.get("youtube");
+        Conexion youtube = conexiones.get("youtube");
         return youtube != null ? youtube.getChannelId() : null;
     }
 }

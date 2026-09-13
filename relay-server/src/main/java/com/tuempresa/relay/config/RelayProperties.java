@@ -4,22 +4,28 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Toda la configuración en un solo sitio y con tipos.
- *
- * Spring enlaza esto al arrancar, así que un secreto que falta se descubre en
- * el primer segundo con un mensaje claro, en lugar de tres días después
- * cuando el hub deja de entregar avisos en silencio.
+ * Toda la configuracion en un sitio y con tipos. Spring la enlaza al arrancar,
+ * asi que un secreto que falta se descubre en el primer segundo.
  */
 @ConfigurationProperties(prefix = "relay")
 public record RelayProperties(
 
         @DefaultValue("") String urlPublica,
+        @DefaultValue Jwt jwt,
         @DefaultValue WebSub websub,
         @DefaultValue YouTube youtube,
+        @DefaultValue Fcm fcm,
+        @DefaultValue Google google,
         @DefaultValue Apple apple,
         @DefaultValue Renovacion renovacion,
         @DefaultValue Cors cors
 ) {
+
+    public record Jwt(
+            @DefaultValue("") String secreto,
+            @DefaultValue("relay") String emisor,
+            @DefaultValue("30") long diasValidez
+    ) {}
 
     public record WebSub(
             @DefaultValue("https://pubsubhubbub.appspot.com/subscribe") String hub,
@@ -31,15 +37,26 @@ public record RelayProperties(
 
     public record YouTube(@DefaultValue("") String apiKey) {}
 
-    public record Apple(
-            @DefaultValue("") String teamId,
-            @DefaultValue("") String keyId,
-            @DefaultValue("") String bundleId,
-            @DefaultValue("") String clavePrivada
+    public record Fcm(
+            @DefaultValue("") String proyectoId,
+            @DefaultValue("") String credenciales
     ) {
         public boolean estaConfigurado() {
-            return !teamId.isBlank() && !keyId.isBlank()
-                    && !bundleId.isBlank() && !clavePrivada.isBlank();
+            return !proyectoId.isBlank() && !credenciales.isBlank();
+        }
+    }
+
+    public record Google(@DefaultValue("") String clientId) {}
+
+    public record Apple(
+            @DefaultValue("") String bundleId,
+            @DefaultValue("") String teamId,
+            @DefaultValue("") String keyId,
+            @DefaultValue("") String clavePrivada
+    ) {
+        public boolean puedeRevocar() {
+            return !bundleId.isBlank() && !teamId.isBlank()
+                    && !keyId.isBlank() && !clavePrivada.isBlank();
         }
     }
 
@@ -60,7 +77,7 @@ public record RelayProperties(
         return base + "/websub?token=" + websub.tokenCallback();
     }
 
-    /** Feed Atom canónico de un canal. WebSub no acepta @handles como tema. */
+    /** Feed Atom canonico de un canal. WebSub no acepta @handles como tema. */
     public static String feedDe(String channelId) {
         return "https://www.youtube.com/xml/feeds/videos.xml?channel_id=" + channelId;
     }

@@ -10,12 +10,36 @@ spring:
   jackson:
     default-property-inclusion: non_null
   threads:
-    # Hilos virtuales (Java 21). Este servidor pasa casi todo su tiempo
-    # esperando respuestas de red: el hub de Google, la Data API de YouTube,
-    # Firestore. Con hilos de plataforma, cada espera bloquea un hilo del
-    # sistema; con virtuales, no. Quítalo si compilas con Java 17.
+    # Hilos virtuales. Este servidor pasa casi todo su tiempo esperando red:
+    # el hub de Google, la Data API, FCM. Con hilos de plataforma cada espera
+    # bloquea un hilo del sistema; con virtuales, no.
     virtual:
       enabled: true
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/relay}
+    username: ${DB_USUARIO:relay}
+    password: ${DB_CLAVE:relay}
+    hikari:
+      maximum-pool-size: ${DB_POOL:10}
+      connection-timeout: 10000
+
+  jpa:
+    hibernate:
+      # El esquema lo gestiona Flyway, no Hibernate. 'validate' comprueba al
+      # arrancar que las entidades cuadran con las tablas y falla si no, que
+      # es infinitamente mejor que descubrirlo en la primera consulta.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
 
 logging:
   level:
@@ -31,54 +55,61 @@ management:
     health:
       probes:
         enabled: true
+      show-details: never
 
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Configuración propia
-# -----------------------------------------------------------------------------
-# Todo se inyecta por variables de entorno. Nada de secretos escritos aquí:
-# este archivo sí se versiona.
+# ---------------------------------------------------------------------------
 relay:
   # URL pública de ESTE servidor. El hub de Google la usa para verificar la
   # suscripción y para entregar los avisos. Sin ella no llega nada.
-  # Ejemplo: https://relay-server-xxxx.a.run.app
   url-publica: ${RELAY_URL_PUBLICA:}
+
+  jwt:
+    # Clave con la que firmamos los tokens de sesión. Mínimo 32 caracteres.
+    #   openssl rand -hex 32
+    # Cambiarla invalida todas las sesiones abiertas.
+    secreto: ${JWT_SECRETO:}
+    emisor: relay
+    dias-validez: 30
 
   websub:
     hub: https://pubsubhubbub.appspot.com/subscribe
-    # Clave simétrica con la que el hub firma cada carga útil.
-    #   openssl rand -hex 32
     secreto: ${WEBSUB_SECRETO:}
-    # Token opaco en la URL del webhook. Filtra escaneos automatizados antes
-    # de gastar una sola lectura de Firestore.
     token-callback: ${WEBSUB_TOKEN_CALLBACK:}
-    # Pedimos el máximo; el hub lo recorta a unos 10 días de todos modos.
     lease-segundos: 864000
-    # Descartamos publicaciones más viejas que esto: al suscribirnos a un canal
-    # por primera vez, el hub reenvía entradas recientes del feed y no queremos
-    # avisar de videos de la semana pasada como si acabaran de salir.
+    # Al suscribirnos a un canal, el hub reenvía entradas recientes del feed.
+    # Sin este corte avisaríamos de videos viejos como si acabaran de salir.
     antiguedad-maxima-horas: 6
 
   youtube:
     api-key: ${YOUTUBE_API_KEY:}
 
+  fcm:
+    # ID del proyecto de Firebase y ruta al JSON de la cuenta de servicio.
+    # Es lo único que sigue siendo de Google, y no cuesta nada: FCM es
+    # gratis e ilimitado, y es la única vía de entregar push a Android e iOS.
+    proyecto-id: ${FCM_PROYECTO_ID:}
+    credenciales: ${FCM_CREDENCIALES:}
+
+  google:
+    # client_id de tipo web. Se usa como audiencia al verificar los tokens
+    # que mandan las apps tras el inicio de sesión con Google.
+    client-id: ${GOOGLE_CLIENT_ID:}
+
   apple:
+    bundle-id: ${APPLE_BUNDLE_ID:}
     team-id: ${APPLE_TEAM_ID:}
     key-id: ${APPLE_KEY_ID:}
-    bundle-id: ${APPLE_BUNDLE_ID:}
-    # Contenido del archivo .p8, con los saltos de línea como \n literales.
     clave-privada: ${APPLE_CLAVE_PRIVADA:}
 
   renovacion:
-    # Con el servidor siempre encendido, esto basta.
-    # Si despliegas en Cloud Run con escalado a cero, ponlo en false: una
-    # instancia apagada nunca ejecuta una tarea programada. Usa entonces
-    # Cloud Scheduler apuntando a POST /internal/renovar.
+    # Con el servidor siempre encendido en tu VPS, esto basta y no hace falta
+    # ningún programador externo.
     programada: ${RENOVACION_PROGRAMADA:true}
     cron: "0 0 4 */4 * *"
     zona: America/Hermosillo
-    # Cabecera compartida que protege /internal/**. Otra cadena aleatoria.
     token-interno: ${TOKEN_INTERNO:}
 
   cors:
-    # Origen del panel de curaduría, separado por comas si hay varios.
     origenes: ${CORS_ORIGENES:http://localhost:5000}

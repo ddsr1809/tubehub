@@ -1,22 +1,33 @@
 package com.tuempresa.relay.modelo;
 
-import com.google.cloud.firestore.annotation.IgnoreExtraProperties;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
 
 /**
  * Un enlace del creador a una plataforma.
  *
- * Tiene constructor sin argumentos, getters y setters porque Firestore mapea
- * documentos por reflexión. Un record no serviría aquí: el SDK no sabe
- * construirlo.
+ * Es un @Embeddable dentro del mapa de Creador, no una entidad propia: no
+ * tiene identidad por si misma ni se consulta suelta, siempre va con su
+ * creador.
  */
-@IgnoreExtraProperties
+@Embeddable
 public class Conexion {
 
+    @Column(nullable = false)
     private String url = "";
+
     private String handle;
+
+    @Column(name = "channel_id")
     private String channelId;
 
     public Conexion() {}
+
+    public Conexion(String url, String handle, String channelId) {
+        this.url = url;
+        this.handle = handle;
+        this.channelId = channelId;
+    }
 
     public String getUrl() { return url; }
     public void setUrl(String url) { this.url = url; }

@@ -6,13 +6,9 @@ plugins {
 
 group = "com.tuempresa"
 version = "0.1.0"
-description = "Servidor del Directorio de Creadores"
+description = "Servidor de seguimiento de creadores"
 
 java {
-    // Java 21 es LTS y es la versión en la que Spring Boot 3.4 está más
-    // probado. Si prefieres reutilizar el JDK 17 que ya tienes para Android,
-    // cambia el 21 por 17 aquí y quita spring.threads.virtual.enabled del
-    // application.yml: los hilos virtuales solo existen a partir del 21.
     toolchain { languageVersion = JavaLanguageVersion.of(21) }
 }
 
@@ -24,28 +20,33 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-security")
     implementation("org.springframework.boot:spring-boot-starter-validation")
-    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-xml")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-xml")
 
-    // Admin SDK: Firestore, Auth y FCM desde el servidor. Ignora las Firestore
-    // Security Rules por diseño, así que toda validación de permisos ocurre
-    // aquí dentro.
-    implementation("com.google.firebase:firebase-admin:9.4.1")
+    // Base de datos propia. Nada sale de tu VPS.
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
 
-    // Firma ES256 del client secret que Apple exige para revocar tokens.
+    // JWT: emitimos los nuestros y verificamos los de Google y Apple contra
+    // sus claves publicas. Nimbus trae el cliente JWKS remoto con cache.
     implementation("com.nimbusds:nimbus-jose-jwt:9.47")
 
-    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
+    // Lo unico que sigue siendo de Google: el token OAuth para llamar a FCM.
+    // Son dos jars, no los ~50 que arrastraba firebase-admin.
+    implementation("com.google.auth:google-auth-library-oauth2-http:1.30.1")
+
     developmentOnly("org.springframework.boot:spring-boot-devtools")
+    annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 }
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
-    // Conserva los nombres de los parámetros en el bytecode. Spring los
-    // necesita para enlazar @RequestParam y los constructores de records sin
-    // tener que repetir el nombre en cada anotación.
+    // Conserva los nombres de parametros para que Spring enlace
+    // @RequestParam y los constructores de records sin anotaciones extra.
     options.compilerArgs.add("-parameters")
 }
 

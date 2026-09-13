@@ -4,9 +4,10 @@ build/
 *.iml
 bin/
 
-# Secretos: NUNCA subir estos archivos
+# Secretos: NUNCA subir
 .env
-service-account.json
+*.json
+!src/**/*.json
 *.p8
 
 .DS_Store

@@ -1,42 +1,84 @@
 package com.tuempresa.relay.push;
 
-import com.google.firebase.messaging.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.auth.oauth2.GoogleCredentials;
+import com.tuempresa.relay.config.RelayProperties;
 import com.tuempresa.relay.modelo.Creador;
 import com.tuempresa.relay.youtube.YouTubeClient;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.io.FileInputStream;
+import java.util.List;
 
 /**
- * Envío de avisos por topics de FCM.
+ * Envío de notificaciones por FCM HTTP v1.
  *
- * Usamos topics en lugar de guardar tokens de dispositivo: un solo envío
- * alcanza a toda la audiencia de un creador, sin fan-out ni cuota, y no
- * almacenamos identificadores de aparato, lo que simplifica el borrado de
- * cuenta que exige la Guideline 5.1.1(v) de Apple.
+ * Hablamos directamente con la API REST en lugar de usar firebase-admin, que
+ * arrastra Firestore, gRPC y unas cincuenta dependencias más para algo que son
+ * dos llamadas HTTP. Lo único que necesitamos de la biblioteca de Google es el
+ * token OAuth de la cuenta de servicio.
+ *
+ * FCM es lo único que sigue siendo de Google en esta arquitectura, y es así
+ * porque no hay alternativa: Android e iOS solo aceptan push a través de sus
+ * propios canales. Es gratis e ilimitado, sin tarjeta.
+ *
+ * Usamos topics: un envío alcanza a toda la audiencia de un creador, sin
+ * fan-out ni almacenar tokens de dispositivo. Eso último simplifica además el
+ * borrado de cuenta.
  */
 @Service
 public class PushService {
 
     private static final Logger log = LoggerFactory.getLogger(PushService.class);
 
-    // Estos identificadores tienen que coincidir letra por letra con los
-    // canales que crea la app de Android en RelayApp.onCreate(). Si no
-    // coinciden, el aviso llega pero cae en un canal genérico llamado "Otros".
+    // Deben coincidir letra por letra con los canales que crea la app de
+    // Android. Si no coinciden, el aviso llega pero cae en "Otros".
     public static final String CANAL_PUBLICACIONES = "publicaciones";
     public static final String CANAL_AVISOS = "avisos";
 
-    private final FirebaseMessaging mensajeria;
+    private static final String SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
-    public PushService(FirebaseMessaging mensajeria) {
-        this.mensajeria = mensajeria;
+    private final RestClient http;
+    private final RelayProperties config;
+    private final ObjectMapper json = new ObjectMapper();
+
+    private GoogleCredentials credenciales;
+    private String urlEnvio;
+
+    public PushService(RestClient http, RelayProperties config) {
+        this.http = http;
+        this.config = config;
     }
 
-    public static String topicDe(String creatorId) {
-        return "creator_" + creatorId;
+    @PostConstruct
+    void preparar() {
+        if (!config.fcm().estaConfigurado()) {
+            log.warn("FCM sin configurar: los avisos se registrarán pero no se enviarán. "
+                    + "Rellena FCM_PROYECTO_ID y FCM_CREDENCIALES.");
+            return;
+        }
+
+        try (FileInputStream flujo = new FileInputStream(config.fcm().credenciales())) {
+            credenciales = GoogleCredentials.fromStream(flujo).createScoped(List.of(SCOPE));
+            urlEnvio = "https://fcm.googleapis.com/v1/projects/"
+                    + config.fcm().proyectoId() + "/messages:send";
+            log.info("FCM listo para el proyecto {}", config.fcm().proyectoId());
+
+        } catch (Exception e) {
+            log.error("No se pudieron leer las credenciales de FCM desde {}",
+                    config.fcm().credenciales(), e);
+        }
+    }
+
+    public static String topicDe(Object creadorId) {
+        return "creator_" + creadorId;
     }
 
     public static String nombreDePlataforma(String plataforma) {
@@ -53,132 +95,137 @@ public class PushService {
         };
     }
 
+    // -------------------------------------------------------------------------
+
     /**
-     * Notifica una publicación nueva.
+     * Avisa de una publicación nueva.
      *
-     * El texto está escrito para que se entienda de un vistazo: quién publicó,
-     * qué publicó, y nada más. Sin emojis decorativos ni jerga de plataforma.
+     * El texto está escrito para entenderse de un vistazo: quién publicó, qué
+     * publicó, y nada más. Sin emojis decorativos ni jerga de plataforma.
      */
-    public String avisarPublicacion(
-            Creador creador,
-            String videoId,
-            String titulo,
-            String miniatura,
-            YouTubeClient.DetalleDeVideo detalle
-    ) throws FirebaseMessagingException {
+    public void avisarPublicacion(Creador creador, String videoId, String titulo,
+                                  String miniatura, YouTubeClient.DetalleDeVideo detalle) {
 
         String encabezado;
-        if (detalle != null && detalle.esEnVivo()) {
-            encabezado = creador.getName() + " está en vivo ahora";
+        if (detalle != null && detalle.enVivo()) {
+            encabezado = creador.getNombre() + " está en vivo ahora";
         } else if (detalle != null && "short".equals(detalle.tipo())) {
-            encabezado = creador.getName() + " publicó un video corto";
+            encabezado = creador.getNombre() + " publicó un video corto";
         } else {
-            encabezado = creador.getName() + " subió un video nuevo";
+            encabezado = creador.getNombre() + " subió un video nuevo";
         }
 
-        String cuerpo = (titulo == null || titulo.isBlank())
-                ? "Toca para verlo en YouTube."
-                : titulo;
+        ObjectNode mensaje = json.createObjectNode();
+        mensaje.put("topic", topicDe(creador.getId()));
+
+        ObjectNode notificacion = mensaje.putObject("notification");
+        notificacion.put("title", encabezado);
+        notificacion.put("body", (titulo == null || titulo.isBlank())
+                ? "Toca para verlo en YouTube." : titulo);
+        if (miniatura != null) notificacion.put("image", miniatura);
 
         // Los datos viajan aparte para que la app resuelva el enlace profundo
         // al abrir la notificación, incluso si el destino cambió después.
-        Map<String, String> datos = new HashMap<>();
+        ObjectNode datos = mensaje.putObject("data");
         datos.put("tipo", "publicacion");
-        datos.put("creatorId", creador.getId());
+        datos.put("creatorId", String.valueOf(creador.getId()));
         datos.put("videoId", videoId);
         datos.put("platform", "youtube");
         datos.put("url", "https://www.youtube.com/watch?v=" + videoId);
 
-        AndroidNotification.Builder androidNotif = AndroidNotification.builder()
-                .setChannelId(CANAL_PUBLICACIONES)
-                // Un solo aviso por creador: si llegan tres videos seguidos, el
-                // último reemplaza al anterior en vez de apilar tres tarjetas.
-                .setTag("creator_" + creador.getId());
+        ObjectNode android = mensaje.putObject("android");
+        android.put("priority", "HIGH");
+        ObjectNode androidNotif = android.putObject("notification");
+        androidNotif.put("channel_id", CANAL_PUBLICACIONES);
+        // Un solo aviso por creador: si llegan tres videos seguidos, el último
+        // reemplaza al anterior en vez de apilar tres tarjetas.
+        androidNotif.put("tag", topicDe(creador.getId()));
+        if (miniatura != null) androidNotif.put("image", miniatura);
 
-        if (miniatura != null) androidNotif.setImage(miniatura);
+        ObjectNode apns = mensaje.putObject("apns");
+        apns.putObject("headers").put("apns-priority", "10");
+        ObjectNode aps = apns.putObject("payload").putObject("aps");
+        aps.put("sound", "default");
+        aps.put("thread-id", topicDe(creador.getId()));
+        aps.put("mutable-content", 1);
+        if (miniatura != null) apns.putObject("fcm_options").put("image", miniatura);
 
-        Notification.Builder notificacion = Notification.builder()
-                .setTitle(encabezado)
-                .setBody(cuerpo);
-
-        if (miniatura != null) notificacion.setImage(miniatura);
-
-        ApnsFcmOptions.Builder apnsOpciones = ApnsFcmOptions.builder();
-        if (miniatura != null) apnsOpciones.setImage(miniatura);
-
-        Message mensaje = Message.builder()
-                .setTopic(topicDe(creador.getId()))
-                .setNotification(notificacion.build())
-                .putAllData(datos)
-                .setAndroidConfig(AndroidConfig.builder()
-                        .setPriority(AndroidConfig.Priority.HIGH)
-                        .setNotification(androidNotif.build())
-                        .build())
-                .setApnsConfig(ApnsConfig.builder()
-                        .putHeader("apns-priority", "10")
-                        .setAps(Aps.builder()
-                                .setSound("default")
-                                .setThreadId("creator_" + creador.getId())
-                                .setMutableContent(true)
-                                .build())
-                        .setFcmOptions(apnsOpciones.build())
-                        .build())
-                .build();
-
-        String id = mensajeria.send(mensaje);
-        log.info("Push enviada a los seguidores de {} por el video {}", creador.getName(), videoId);
-        return id;
+        enviar(mensaje, "publicación de " + creador.getNombre());
     }
 
     /**
      * Aviso de contenido movido.
      *
-     * Es la pieza que hace resiliente al directorio: si YouTube tumba un video
-     * o cierra un canal, el destino se reemplaza y la audiencia recibe el
-     * enlace nuevo sin tener que buscar nada. Es la diferencia entre que un
-     * creador pierda su audiencia y que solo pierda un video.
+     * Es la pieza que hace resiliente al directorio: si una plataforma tumba
+     * un video, el destino se reemplaza y la audiencia recibe el enlace nuevo
+     * sin tener que buscar nada. Es la diferencia entre que un creador pierda
+     * su audiencia y que solo pierda un video.
      */
-    public String avisarContenidoMovido(
-            Creador creador,
-            String videoId,
-            String tituloVideo,
-            String destinoUrl,
-            String destinoPlataforma
-    ) throws FirebaseMessagingException {
+    public void avisarContenidoMovido(Creador creador, String videoId, String tituloVideo,
+                                      String destinoUrl, String destinoPlataforma) {
 
         String donde = nombreDePlataforma(destinoPlataforma);
         String cuerpo = (tituloVideo != null && !tituloVideo.isBlank())
                 ? "\"" + tituloVideo + "\" ahora está en " + donde + ". Toca para verlo."
                 : "Ahora está en " + donde + ". Toca para verlo.";
 
-        Map<String, String> datos = new HashMap<>();
+        ObjectNode mensaje = json.createObjectNode();
+        mensaje.put("topic", topicDe(creador.getId()));
+
+        ObjectNode notificacion = mensaje.putObject("notification");
+        notificacion.put("title", "El video de " + creador.getNombre() + " cambió de lugar");
+        notificacion.put("body", cuerpo);
+
+        ObjectNode datos = mensaje.putObject("data");
         datos.put("tipo", "movido");
-        datos.put("creatorId", creador.getId());
+        datos.put("creatorId", String.valueOf(creador.getId()));
         datos.put("videoId", videoId);
         datos.put("platform", destinoPlataforma);
         datos.put("url", destinoUrl);
 
-        Message mensaje = Message.builder()
-                .setTopic(topicDe(creador.getId()))
-                .setNotification(Notification.builder()
-                        .setTitle("El video de " + creador.getName() + " cambió de lugar")
-                        .setBody(cuerpo)
-                        .build())
-                .putAllData(datos)
-                .setAndroidConfig(AndroidConfig.builder()
-                        .setPriority(AndroidConfig.Priority.HIGH)
-                        .setNotification(AndroidNotification.builder()
-                                .setChannelId(CANAL_AVISOS)
-                                .build())
-                        .build())
-                .setApnsConfig(ApnsConfig.builder()
-                        .putHeader("apns-priority", "10")
-                        .setAps(Aps.builder().setSound("default").build())
-                        .build())
-                .build();
+        ObjectNode android = mensaje.putObject("android");
+        android.put("priority", "HIGH");
+        android.putObject("notification").put("channel_id", CANAL_AVISOS);
 
-        String id = mensajeria.send(mensaje);
-        log.info("Push de contenido movido enviada para {}", creador.getName());
-        return id;
+        ObjectNode apns = mensaje.putObject("apns");
+        apns.putObject("headers").put("apns-priority", "10");
+        apns.putObject("payload").putObject("aps").put("sound", "default");
+
+        enviar(mensaje, "contenido movido de " + creador.getNombre());
+    }
+
+    // -------------------------------------------------------------------------
+
+    private void enviar(ObjectNode mensaje, String descripcion) {
+        if (credenciales == null) {
+            log.warn("FCM sin configurar; no se envió el aviso de {}", descripcion);
+            return;
+        }
+
+        try {
+            // refreshIfExpired cachea: solo pide un token nuevo cuando el
+            // anterior está a punto de caducar, no en cada envío.
+            credenciales.refreshIfExpired();
+            String token = credenciales.getAccessToken().getTokenValue();
+
+            ObjectNode sobre = json.createObjectNode();
+            sobre.set("message", mensaje);
+
+            JsonNode respuesta = http.post()
+                    .uri(urlEnvio)
+                    .header("Authorization", "Bearer " + token)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(sobre.toString())
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            log.info("Aviso enviado ({}): {}", descripcion,
+                    respuesta != null ? respuesta.path("name").asText() : "sin id");
+
+        } catch (Exception e) {
+            // Un fallo de push no debe tumbar el procesado del aviso: el video
+            // ya está guardado y aparecerá en la app la próxima vez que abra.
+            log.error("No se pudo enviar el aviso de {}: {}", descripcion, e.getMessage());
+        }
     }
 }

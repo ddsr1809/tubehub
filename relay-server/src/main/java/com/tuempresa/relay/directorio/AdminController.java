@@ -1,13 +1,5 @@
 package com.tuempresa.relay.directorio;
 
-import com.google.api.core.ApiFuture;
-import com.google.cloud.Timestamp;
-import com.google.cloud.firestore.DocumentReference;
-import com.google.cloud.firestore.DocumentSnapshot;
-import com.google.cloud.firestore.Firestore;
-import com.google.cloud.firestore.SetOptions;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.UserRecord;
 import com.tuempresa.relay.modelo.*;
 import com.tuempresa.relay.push.PushService;
 import com.tuempresa.relay.websub.WebSubService;
@@ -15,19 +7,23 @@ import com.tuempresa.relay.youtube.YouTubeClient;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.time.Instant;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Todo lo que hay bajo /api/admin exige ROLE_ADMIN, que viene del claim
- * {@code admin} del token de Firebase. Es el mismo claim que usan las Firestore
- * Security Rules, así que no hay dos fuentes de verdad sobre quién modera.
+ * Panel de moderación.
+ *
+ * Todo bajo /api/admin exige ROLE_ADMIN, que sale del claim del token de
+ * sesión. El primer administrador se nombra con una sentencia SQL; los
+ * siguientes, desde aquí.
  */
 @RestController
 @RequestMapping("/api/admin")
@@ -37,16 +33,26 @@ public class AdminController {
     private static final Pattern ID_CANAL = Pattern.compile("(UC[\\w-]{22})");
     private static final Pattern HANDLE = Pattern.compile("@([\\w.-]+)");
 
-    private final Firestore db;
-    private final FirebaseAuth auth;
+    private final Repositorios.Creadores creadores;
+    private final Repositorios.Publicaciones publicaciones;
+    private final Repositorios.Usuarios usuarios;
+    private final Repositorios.Suscripciones suscripciones;
+    private final Repositorios.Reportes reportes;
     private final WebSubService websub;
     private final YouTubeClient youtube;
     private final PushService push;
 
-    public AdminController(Firestore db, FirebaseAuth auth, WebSubService websub,
-                           YouTubeClient youtube, PushService push) {
-        this.db = db;
-        this.auth = auth;
+    public AdminController(Repositorios.Creadores creadores,
+                           Repositorios.Publicaciones publicaciones,
+                           Repositorios.Usuarios usuarios,
+                           Repositorios.Suscripciones suscripciones,
+                           Repositorios.Reportes reportes,
+                           WebSubService websub, YouTubeClient youtube, PushService push) {
+        this.creadores = creadores;
+        this.publicaciones = publicaciones;
+        this.usuarios = usuarios;
+        this.suscripciones = suscripciones;
+        this.reportes = reportes;
         this.websub = websub;
         this.youtube = youtube;
         this.push = push;
@@ -56,82 +62,93 @@ public class AdminController {
     // Creadores
     // -------------------------------------------------------------------------
 
+    /** Listado con el estado de la suscripción, que es lo que pinta el testigo. */
+    @GetMapping("/creadores")
+    @Transactional(readOnly = true)
+    public List<Dtos.CreadorAdminDto> listar() {
+        Map<String, Suscripcion> estados = new HashMap<>();
+        suscripciones.findAll().forEach(s -> estados.put(s.getChannelId(), s));
+
+        return creadores.findAll().stream()
+                .sorted(Comparator.comparing(Creador::getNombre))
+                .map(c -> {
+                    Suscripcion s = c.getCanalDeYouTube() != null
+                            ? estados.get(c.getCanalDeYouTube()) : null;
+
+                    return new Dtos.CreadorAdminDto(
+                            c.getId(), c.getNombre(), c.getCategoria(), c.getBio(),
+                            c.getFotoUrl(), c.isActivo(),
+                            Dtos.CreadorDto.de(c).conexiones(),
+                            s != null ? s.getEstado() : null,
+                            s != null ? s.getExpiraEn() : null,
+                            usuarios.cuantosSiguen(c.getId()));
+                })
+                .toList();
+    }
+
     @PostMapping("/creadores")
+    @Transactional
     public Dtos.CreadorGuardado guardar(@Valid @RequestBody Dtos.GuardarCreador peticion) {
-        if (!Colecciones.CATEGORIAS.contains(peticion.categoriaOtros())) {
+        if (!Dtos.CATEGORIAS.contains(peticion.categoriaOtros())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Categoría no válida: " + peticion.categoriaOtros());
         }
 
-        Map<String, Object> conexiones = new HashMap<>();
-        peticion.plataformasSeguras().forEach((plataforma, conexion) -> {
-            if (!Colecciones.PLATAFORMAS.contains(plataforma)) return;
-            if (conexion == null || conexion.getUrl() == null || conexion.getUrl().isBlank()) return;
+        Creador creador = peticion.id() != null
+                ? creadores.findById(peticion.id()).orElseGet(Creador::new)
+                : new Creador();
 
-            Map<String, Object> datos = new HashMap<>();
-            datos.put("url", conexion.getUrl().trim());
-            datos.put("handle", conexion.getHandle() != null ? conexion.getHandle().trim() : null);
-            datos.put("channelId", conexion.getChannelId() != null ? conexion.getChannelId().trim() : null);
-            conexiones.put(plataforma, datos);
+        String canalPrevio = creador.getCanalDeYouTube();
+
+        creador.setNombre(peticion.nombre().trim());
+        creador.setCategoria(peticion.categoriaOtros());
+        creador.setBio(recortar(peticion.bio(), 600));
+        creador.setFotoUrl(peticion.fotoUrl());
+        creador.setActivo(peticion.estaActivo());
+        creador.setActualizadoEn(Instant.now());
+
+        Map<String, Conexion> conexiones = new LinkedHashMap<>();
+        peticion.conexionesSeguras().forEach((plataforma, dto) -> {
+            if (!Dtos.PLATAFORMAS.contains(plataforma)) return;
+            if (dto == null || dto.url() == null || dto.url().isBlank()) return;
+
+            conexiones.put(plataforma, new Conexion(
+                    dto.url().trim(),
+                    dto.handle() != null ? dto.handle().trim() : null,
+                    dto.channelId() != null ? dto.channelId().trim() : null));
         });
+        creador.setConexiones(conexiones);
 
-        DocumentReference ref = (peticion.id() != null && !peticion.id().isBlank())
-                ? db.collection(Colecciones.CREADORES).document(peticion.id())
-                : db.collection(Colecciones.CREADORES).document();
-
-        Creador previo = null;
-        if (peticion.id() != null && !peticion.id().isBlank()) {
-            DocumentSnapshot doc = esperar(ref.get());
-            if (doc.exists()) previo = doc.toObject(Creador.class);
-        }
-
-        Map<String, Object> datos = new HashMap<>();
-        datos.put("name", peticion.name().trim());
-        datos.put("category", peticion.categoriaOtros());
-        datos.put("bio", recortar(peticion.bio(), 600));
-        datos.put("photoUrl", peticion.photoUrl());
-        datos.put("platforms", conexiones);
-        datos.put("active", peticion.estaActivo());
-        datos.put("updatedAt", Timestamp.now());
-        if (previo == null) datos.put("createdAt", Timestamp.now());
-
-        esperar(ref.set(datos, SetOptions.merge()));
+        creadores.saveAndFlush(creador);
 
         // Sincronizar WebSub si el canal cambió o si se activó o desactivó.
-        Map<String, Object> youtubeConexion = castearMapa(conexiones.get("youtube"));
-        String canalNuevo = youtubeConexion != null ? (String) youtubeConexion.get("channelId") : null;
-        String canalPrevio = previo != null ? previo.getCanalDeYouTube() : null;
-
+        String canalNuevo = creador.getCanalDeYouTube();
         try {
             if (canalPrevio != null && !canalPrevio.equals(canalNuevo)) {
                 websub.desuscribir(canalPrevio);
             }
             if (canalNuevo != null && !canalNuevo.isBlank()) {
-                if (peticion.estaActivo()) websub.suscribir(canalNuevo);
+                if (creador.isActivo()) websub.suscribir(canalNuevo);
                 else websub.desuscribir(canalNuevo);
             }
-            return new Dtos.CreadorGuardado(ref.getId(), null);
+            return new Dtos.CreadorGuardado(creador.getId(), null);
 
         } catch (Exception e) {
             // El creador queda guardado aunque el hub falle; la renovación
             // programada vuelve a intentarlo en el siguiente ciclo.
-            log.error("No se pudo sincronizar la suscripción de {}", ref.getId(), e);
-            return new Dtos.CreadorGuardado(ref.getId(), e.getMessage());
+            log.error("No se pudo sincronizar la suscripción de {}", creador.getId(), e);
+            return new Dtos.CreadorGuardado(creador.getId(), e.getMessage());
         }
     }
 
     @DeleteMapping("/creadores/{id}")
-    public Dtos.RespuestaSimple borrar(@PathVariable String id) {
-        DocumentReference ref = db.collection(Colecciones.CREADORES).document(id);
-        DocumentSnapshot doc = esperar(ref.get());
+    @Transactional
+    public Dtos.RespuestaSimple borrar(@PathVariable UUID id) {
+        Creador creador = creadores.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Ese creador ya no existe."));
 
-        if (!doc.exists()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Ese creador ya no existe.");
-        }
-
-        Creador creador = doc.toObject(Creador.class);
-        String canal = creador != null ? creador.getCanalDeYouTube() : null;
-
+        String canal = creador.getCanalDeYouTube();
         if (canal != null && !canal.isBlank()) {
             try {
                 websub.desuscribir(canal);
@@ -140,7 +157,7 @@ public class AdminController {
             }
         }
 
-        esperar(ref.delete());
+        creadores.delete(creador);
         return Dtos.RespuestaSimple.de("Creador retirado del directorio.");
     }
 
@@ -184,58 +201,72 @@ public class AdminController {
     }
 
     // -------------------------------------------------------------------------
-    // Redirección de emergencia
+    // Publicaciones y redirección de emergencia
     // -------------------------------------------------------------------------
 
+    @GetMapping("/publicaciones")
+    @Transactional(readOnly = true)
+    public List<Dtos.PublicacionDto> recientes(@RequestParam(defaultValue = "40") int limite) {
+        List<Publicacion> lista = publicaciones.findAllByOrderByPublicadoEnDesc(
+                PageRequest.of(0, Math.min(limite, 200)));
+
+        Map<UUID, String> nombres = new HashMap<>();
+        creadores.findAllById(lista.stream().map(Publicacion::getCreadorId).distinct().toList())
+                 .forEach(c -> nombres.put(c.getId(), c.getNombre()));
+
+        return lista.stream()
+                .map(p -> Dtos.PublicacionDto.de(p, nombres.get(p.getCreadorId())))
+                .toList();
+    }
+
     /**
-     * Cuando YouTube tumba un video por un falso positivo, el destino se
-     * reemplaza y la audiencia recibe el enlace nuevo. La entidad del creador
-     * nunca se pierde: es lo que evita la caída catastrófica de audiencia
-     * cuando alguien es desterrado de una plataforma.
+     * Cuando una plataforma tumba un video por un falso positivo, el destino
+     * se reemplaza y la audiencia recibe el enlace nuevo. La entidad del
+     * creador nunca se pierde: es lo que evita la caída catastrófica de
+     * audiencia cuando alguien es desterrado.
      */
     @PostMapping("/videos/{videoId}/mover")
-    public Dtos.RespuestaSimple mover(
-            @PathVariable String videoId,
-            @Valid @RequestBody Dtos.MoverContenido peticion
-    ) {
-        DocumentReference videoRef = db.collection(Colecciones.VIDEOS).document(videoId);
-        DocumentSnapshot videoDoc = esperar(videoRef.get());
+    @Transactional
+    public Dtos.RespuestaSimple mover(@PathVariable String videoId,
+                                      @Valid @RequestBody Dtos.MoverContenido peticion) {
 
-        if (!videoDoc.exists()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
-                    "Ese video no está en el directorio.");
-        }
+        Publicacion p = publicaciones.findByVideoId(videoId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Ese video no está en el directorio."));
 
-        Map<String, Object> cambio = new HashMap<>();
-        cambio.put("status", "moved");
-        cambio.put("overrideUrl", peticion.url());
-        cambio.put("overridePlatform", peticion.plataformaDestino());
-        cambio.put("movedAt", Timestamp.now());
-        esperar(videoRef.set(cambio, SetOptions.merge()));
+        p.setEstado(Publicacion.MOVIDO);
+        p.setDestinoUrl(peticion.url());
+        p.setDestinoPlataforma(peticion.plataformaDestino());
+        publicaciones.save(p);
 
         if (peticion.debeAvisar()) {
-            String creatorId = videoDoc.getString("creatorId");
-            if (creatorId != null) {
-                DocumentSnapshot creadorDoc =
-                        esperar(db.collection(Colecciones.CREADORES).document(creatorId).get());
-
-                if (creadorDoc.exists()) {
-                    Creador creador = creadorDoc.toObject(Creador.class);
-                    creador.setId(creadorDoc.getId());
-                    try {
-                        push.avisarContenidoMovido(
-                                creador, videoId, videoDoc.getString("title"),
-                                peticion.url(), peticion.plataformaDestino());
-                    } catch (Exception e) {
-                        log.error("El destino cambió pero la push falló", e);
-                        return Dtos.RespuestaSimple.de(
-                                "Destino cambiado, pero no se pudo avisar a la audiencia.");
-                    }
-                }
-            }
+            creadores.findById(p.getCreadorId()).ifPresent(creador ->
+                    push.avisarContenidoMovido(creador, videoId, p.getTitulo(),
+                            peticion.url(), peticion.plataformaDestino()));
         }
 
         return Dtos.RespuestaSimple.de("Destino cambiado.");
+    }
+
+    // -------------------------------------------------------------------------
+    // Reportes
+    // -------------------------------------------------------------------------
+
+    @GetMapping("/reportes")
+    public List<Reporte> pendientes(@RequestParam(defaultValue = "50") int limite) {
+        return reportes.findByResueltoFalseOrderByCreadoEnDesc(
+                PageRequest.of(0, Math.min(limite, 200)));
+    }
+
+    @PostMapping("/reportes/{id}/resolver")
+    @Transactional
+    public Dtos.RespuestaSimple resolver(@PathVariable Long id) {
+        Reporte reporte = reportes.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Ese reporte no existe."));
+
+        reporte.setResuelto(true);
+        return Dtos.RespuestaSimple.de("Reporte marcado como resuelto.");
     }
 
     // -------------------------------------------------------------------------
@@ -243,43 +274,17 @@ public class AdminController {
     // -------------------------------------------------------------------------
 
     @PostMapping("/administradores")
-    public Dtos.RespuestaSimple nombrarAdmin(@RequestParam String correo) {
-        UserRecord usuario;
-        try {
-            usuario = auth.getUserByEmail(correo);
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
-                    "Ese correo no tiene cuenta todavía. Pide que entre una vez al panel primero.");
-        }
+    @Transactional
+    public Dtos.RespuestaSimple nombrar(@RequestParam String correo) {
+        Usuario usuario = usuarios.findByEmail(correo)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Ese correo no tiene cuenta todavía. Pide que entre una vez primero."));
 
-        try {
-            auth.setCustomUserClaims(usuario.getUid(), Map.of("admin", true));
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "No se pudo asignar el rol.");
-        }
+        usuario.setEsAdmin(true);
+        log.info("Rol de administrador otorgado a {}", usuario.getId());
 
-        log.info("Rol de administrador otorgado a {}", usuario.getUid());
         return Dtos.RespuestaSimple.de(
                 "Listo. Pide a esa persona que cierre sesión y vuelva a entrar.");
-    }
-
-    // -------------------------------------------------------------------------
-
-    private <T> T esperar(ApiFuture<T> futuro) {
-        try {
-            return futuro.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Operación de Firestore interrumpida", e);
-        } catch (Exception e) {
-            throw new IllegalStateException("Error de Firestore: " + e.getMessage(), e);
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> castearMapa(Object valor) {
-        return valor instanceof Map ? (Map<String, Object>) valor : null;
     }
 
     private String recortar(String texto, int maximo) {
