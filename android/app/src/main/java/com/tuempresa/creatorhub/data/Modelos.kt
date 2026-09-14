@@ -1,10 +1,10 @@
 package com.tuempresa.creatorhub.data
 
-import com.google.firebase.Timestamp
+import java.time.Instant
 
-// Los nombres de los campos tienen que coincidir con los que escribe el
-// backend. Firestore mapea por nombre de propiedad, y un campo mal escrito
-// no da error: llega en null y se ve como un hueco en la interfaz.
+// Los nombres de los campos se mantienen deliberadamente como estaban cuando
+// los datos venian de Firestore. Asi ninguna pantalla cambia: la traduccion
+// desde los nombres del servidor ocurre en ApiRelay, en un solo sitio.
 
 data class Conexion(
     val url: String = "",
@@ -42,7 +42,9 @@ data class Publicacion(
     val description: String? = null,
     val thumbnailUrl: String? = null,
     val url: String? = null,
-    val publishedAt: Timestamp? = null,
+    // Antes era com.google.firebase.Timestamp. Ahora es un Instant del JDK:
+    // el servidor manda ISO-8601 y no hace falta ninguna biblioteca externa.
+    val publishedAt: Instant? = null,
     val status: String = "ok",
     val overrideUrl: String? = null,
     val overridePlatform: String? = null,
@@ -53,7 +55,7 @@ data class Publicacion(
 
     /**
      * A dónde lleva realmente el botón. Si el equipo redirigió el contenido
-     * porque lo tumbaron de YouTube, el destino es el nuevo, no el original.
+     * porque lo tumbaron de la plataforma original, el destino es el nuevo.
      */
     val destino: Destino
         get() = if (fueMovido) {
