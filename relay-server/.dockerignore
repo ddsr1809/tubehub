@@ -5,3 +5,7 @@ build/
 src/test/
 *.json
 *.p8
+.env.*
+!.env.example
+!.env.*.example
+!src/**/*.json
