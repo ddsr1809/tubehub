@@ -26,7 +26,11 @@ android {
         )
 
         // URL del servidor Relé. Sin barra final: las rutas ya la llevan.
-        buildConfigField("String", "API_BASE", "\"https://TU-SERVIDOR\"")
+        buildConfigField(
+            "String",
+            "API_BASE",
+            "\"http://192.168.110.89:8080\""
+        )
     }
 
     buildTypes {
