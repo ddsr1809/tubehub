@@ -1,11 +1,11 @@
 build/
 .gradle/
+
+# No enviar secretos al contexto de Docker
 .env
+.env.*
+
 *.log
 src/test/
 *.json
 *.p8
-.env.*
-!.env.example
-!.env.*.example
-!src/**/*.json
