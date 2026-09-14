@@ -43,7 +43,8 @@ android {
             // Dentro del emulador, localhost es el propio emulador. El host
             // se alcanza por 10.0.2.2. Con un teléfono físico por USB, usa
             // la IP de tu computadora en la red local.
-            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:8080\"")
+//            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:8080\"")
+            buildConfigField("String", "API_BASE", "\"192.168.110.89:8080\"")
         }
     }
 
