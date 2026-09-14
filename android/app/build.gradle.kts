@@ -82,9 +82,9 @@ dependencies {
     implementation(libs.androidx.material3)
     debugImplementation(libs.androidx.ui.tooling)
 
+    // Solo mensajeria. El directorio, las sesiones y los favoritos viven
+    // ahora en el servidor propio.
     implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
 
     implementation(libs.androidx.credentials)
