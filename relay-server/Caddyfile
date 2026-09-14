@@ -3,7 +3,7 @@ ythub.d2600.com {
     reverse_proxy 127.0.0.1:8080
 }
 
-test.ythub.d2600.com {
+testhub.d2600.com {
     encode zstd gzip
     reverse_proxy 127.0.0.1:8081
 }
