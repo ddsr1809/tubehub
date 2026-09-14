@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.os.Build
 import com.tuempresa.creatorhub.data.ApiRelay
 
+
 /**
  * Arranque de la aplicacion.
  *
@@ -26,7 +27,10 @@ class RelayApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ApiRelay.inicializar(this)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) crearCanales()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            crearCanales()
+        }
     }
 
     private fun crearCanales() {
