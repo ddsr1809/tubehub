@@ -9,13 +9,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.google.firebase.Timestamp
+import java.time.Instant
 import com.tuempresa.creatorhub.EstadoApp
 import com.tuempresa.creatorhub.data.Conexion
 import com.tuempresa.creatorhub.data.Creador
 import com.tuempresa.creatorhub.data.Perfil
 import com.tuempresa.creatorhub.data.Publicacion
-import java.util.Date
+
 
 // Previews.
 //
@@ -99,7 +99,9 @@ private val publicaciones = listOf(
         title = "Pan de muerto casero: la receta de mi abuela paso a paso",
         thumbnailUrl = null,
         url = "https://www.youtube.com/watch?v=v1",
-        publishedAt = Timestamp(Date(System.currentTimeMillis() - 45 * 60 * 1000))
+        publishedAt = Instant.ofEpochMilli(
+            System.currentTimeMillis() - 45 * 60 * 1000L
+        )
     ),
     Publicacion(
         id = "v2",
@@ -111,7 +113,9 @@ private val publicaciones = listOf(
         status = "moved",
         overrideUrl = "https://vimeo.com/respaldo",
         overridePlatform = "web",
-        publishedAt = Timestamp(Date(System.currentTimeMillis() - 5 * 60 * 60 * 1000))
+        publishedAt = Instant.ofEpochMilli(
+            System.currentTimeMillis() - 5 * 60 * 60 * 1000L
+        )
     )
 )
 

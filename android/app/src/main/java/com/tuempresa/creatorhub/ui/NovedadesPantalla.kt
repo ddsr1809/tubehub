@@ -19,7 +19,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.google.firebase.Timestamp
+import java.time.Instant
 import com.tuempresa.creatorhub.data.Publicacion
 import com.tuempresa.creatorhub.enlaces.Enrutador
 import java.text.SimpleDateFormat
@@ -181,8 +181,8 @@ private fun TarjetaPublicacion(
  * Fechas en palabras. "hace 2 horas" se entiende de un vistazo; una marca
  * como 09/09/2026 15:04 obliga a hacer la resta mentalmente.
  */
-private fun tiempoRelativo(marca: Timestamp?): String {
-    val fecha = marca?.toDate() ?: return ""
+private fun tiempoRelativo(marca: Instant?): String {
+    val fecha = marca?.let { java.util.Date.from(it) } ?: return ""
     val minutos = (System.currentTimeMillis() - fecha.time) / 60_000
 
     return when {
