@@ -13,6 +13,9 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
@@ -93,15 +96,8 @@ public class WebSubService {
         formulario.add("hub.lease_seconds", String.valueOf(config.websub().leaseSegundos()));
 
         try {
-            var respuesta = http.post()
-                    .uri(config.websub().hub())
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body(formulario)
-                    .retrieve()
-                    .toBodilessEntity();
-
-            log.info("Handshake {} enviado para {} (HTTP {})",
-                    modo, channelId, respuesta.getStatusCode().value());
+            int codigo = enviarAlHub(formulario);
+            log.info("Handshake {} enviado para {} (HTTP {})", modo, channelId, codigo);
 
         } catch (Exception e) {
             registro.setEstado(Suscripcion.ERROR);
@@ -111,6 +107,65 @@ public class WebSubService {
         }
     }
 
+    /**
+     * El hub de Google es un App Engine antiguo y responde entre medio segundo
+     * y veinte segundos. Cuando pasa de veinte devuelve 503 con Retry-After,
+     * y eso ocurre en una fracción notable de las peticiones. Con un solo
+     * intento, las suscripciones fallaban al azar y no se reintentaban hasta
+     * el ciclo de renovación, cuatro días después.
+     *
+     * Reintentamos solo lo que puede mejorar: 5xx, 429 y fallos de red. Un 400
+     * o un 404 son nuestros y repetirlos no los arregla.
+     */
+    private int enviarAlHub(MultiValueMap<String, String> formulario) {
+        RuntimeException ultimo = null;
+
+        for (int intento = 1; intento <= 3; intento++) {
+            try {
+                return http.post()
+                        .uri(config.websub().hub())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .body(formulario)
+                        .retrieve()
+                        .toBodilessEntity()
+                        .getStatusCode().value();
+
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() != 429) throw e;   // 4xx: no insistir
+                ultimo = e;
+            } catch (HttpServerErrorException | ResourceAccessException e) {
+                ultimo = e;                                      // 5xx y tiempos agotados
+            }
+
+            log.warn("Intento {} de 3 fallido contra el hub: {}", intento, ultimo.getMessage());
+
+            if (intento < 3) {
+                try {
+                    Thread.sleep(intento * 4000L);               // 4s, luego 8s
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        throw ultimo;
+    }
+
+    public void reintentarNoActivas() {
+        List<Suscripcion> atrasadas = new ArrayList<>();
+        atrasadas.addAll(suscripciones.findByEstado(Suscripcion.ERROR));
+        atrasadas.addAll(suscripciones.findByEstado(Suscripcion.PENDIENTE));
+        if (atrasadas.isEmpty()) return;
+
+        log.info("Repescando {} suscripciones que no llegaron a ACTIVA", atrasadas.size());
+        for (Suscripcion s : atrasadas) {
+            try {
+                suscribir(s.getChannelId());
+            } catch (Exception e) {
+                log.warn("Repesca fallida para {}: {}", s.getChannelId(), e.getMessage());
+            }
+        }
+    }
     // -------------------------------------------------------------------------
     // Verificación de intención (GET del hub)
     // -------------------------------------------------------------------------

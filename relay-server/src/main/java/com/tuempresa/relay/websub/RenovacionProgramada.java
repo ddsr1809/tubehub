@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * Renovación de arrendamientos por dos caminos, porque dependen del despliegue:
  *
@@ -49,6 +51,11 @@ public class RenovacionProgramada {
             log.warn("Quedaron {} suscripciones sin renovar: {}",
                     resultado.fallidos(), resultado.errores());
         }
+    }
+    @Scheduled(fixedDelay = 15, timeUnit = TimeUnit.MINUTES, initialDelay = 2)
+    public void repescarPendientes() {
+        if (!config.renovacion().programada()) return;
+        servicio.reintentarNoActivas();
     }
 }
 
