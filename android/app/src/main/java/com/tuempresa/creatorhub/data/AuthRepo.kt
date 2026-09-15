@@ -9,7 +9,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.tuempresa.creatorhub.BuildConfig
 
@@ -73,14 +73,9 @@ class AuthRepo {
     private suspend fun idTokenDeGoogle(contexto: Context): String {
         val gestor = CredentialManager.create(contexto)
 
-        val opcion = GetGoogleIdOption.Builder()
-            // false para que aparezcan también las cuentas que nunca han usado
-            // esta app. Con true, un usuario nuevo vería un diálogo vacío y
-            // pensaría que algo se rompió.
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(BuildConfig.WEB_CLIENT_ID)
-            .setAutoSelectEnabled(false)
-            .build()
+        val opcion = GetSignInWithGoogleOption.Builder(
+            serverClientId = BuildConfig.WEB_CLIENT_ID
+        ).build()
 
         val peticion = GetCredentialRequest.Builder().addCredentialOption(opcion).build()
         val credencial = gestor.getCredential(contexto, peticion).credential
