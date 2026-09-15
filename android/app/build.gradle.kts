@@ -22,7 +22,7 @@ android {
         buildConfigField(
             "String",
             "WEB_CLIENT_ID",
-            "\"389825726990-58olnf4lifms9nsjgbaa3uo20vuclkc1.apps.googleusercontent.com\""
+            "\"389825726990-b6ubrv9f9fv2n2rn2r9dcbho9dnmdv8c.apps.googleusercontent.com\""
         )
 
         // URL del servidor Relé. Sin barra final: las rutas ya la llevan.
