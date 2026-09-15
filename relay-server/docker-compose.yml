@@ -9,6 +9,7 @@ services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    mem_limit: ${DB_MEMORIA:-384m}
     environment:
       POSTGRES_DB: ${DB_NOMBRE:-relay}
       POSTGRES_USER: ${DB_USUARIO:-relay}
@@ -27,11 +28,12 @@ services:
   servidor:
     build: .
     restart: unless-stopped
+    mem_limit: ${SERVIDOR_MEMORIA:-640m}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${PUERTO_HOST:-8080}:8080"
     environment:
       DB_URL: jdbc:postgresql://db:5432/${DB_NOMBRE:-relay}
       DB_USUARIO: ${DB_USUARIO:-relay}
