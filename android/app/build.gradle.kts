@@ -22,14 +22,14 @@ android {
         buildConfigField(
             "String",
             "WEB_CLIENT_ID",
-            "\"000000000000-xxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com\""
+            "\"389825726990-58olnf4lifms9nsjgbaa3uo20vuclkc1.apps.googleusercontent.com\""
         )
 
         // URL del servidor Relé. Sin barra final: las rutas ya la llevan.
         buildConfigField(
             "String",
             "API_BASE",
-            "\"http://192.168.110.89:8080\""
+            "\"https://ythub.d2600.com\""
         )
     }
 
@@ -48,7 +48,7 @@ android {
             // se alcanza por 10.0.2.2. Con un teléfono físico por USB, usa
             // la IP de tu computadora en la red local.
 //            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:8080\"")
-            buildConfigField("String", "API_BASE", "\"http://192.168.110.89:8080\"")
+            buildConfigField("String", "API_BASE", "\"https://ythub.d2600.com\"")
         }
     }
 
